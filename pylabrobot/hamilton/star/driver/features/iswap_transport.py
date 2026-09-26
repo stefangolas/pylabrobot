@@ -59,8 +59,6 @@ PICKUP_DISTANCE_FROM_TOP = 5.0  # when the resource states no `preferred_pickup_
 # How far below a lid's skirt a lidded plate is gripped, in mm. A lid comes down over the plate's
 # sides by its `nesting_z_height`; jaws closing within that close on the lid, not the plate.
 BELOW_LID = 2.0
-# How far above the tallest thing under its way what the arm carries travels, at least, in mm.
-CLEARANCE = 5.0
 
 
 def _norm(degrees: float) -> float:
@@ -220,8 +218,9 @@ class iSWAPTransport:
 
   Args:
     iswap: the STAR's iSWAP feature, set up.
-    traverse_height: where the grip centre travels, in mm on the deck.
-      `iswap.default_minimum_traverse_height` when None - what legacy sends.
+    traverse_height: where the grip centre travels, in mm on the deck: one fixed height, high
+      enough for anything, not worked out from what is on the deck. The iSWAP's own
+      `default_minimum_traverse_height` when None (legacy sends 280 mm).
   """
 
   def __init__(self, iswap: Any, traverse_height: Optional[float] = None):
@@ -399,62 +398,6 @@ class iSWAPTransport:
       Coordinate(wx + tool * math.cos(grip), wy + tool * math.sin(grip), 0),
     ]
 
-  def _hang_below_grip(self, held: Optional[Resource]) -> float:
-    """How far the lowest point of what the arm carries - its fingers and pads, and anything held -
-    hangs below the grip centre, in mm."""
-    deck = self.deck
-    grip_z = self._grip_z_now()
-    gripper = self.iswap.gripper
-    parts = [part for part in gripper.get_all_children() if part is not held]
-    if held is not None:
-      parts.append(held)
-    lowest = min(part.get_location_wrt(deck).z for part in parts)
-    return float(max(0.0, grip_z - lowest))
-
-  def _check_clearance(
-    self, reach: Reach, travel: Travel, traverse: float, held: Optional[Resource], margin: float
-  ) -> None:
-    """Refuse a travel whose lowest point would not clear the tallest thing under its way.
-
-    The way is the rectangle the elbow, the wrist and the grip centre span between where they are
-    and where they go - and where they turn, for a turn part way - widened by half of whatever is
-    held. What the arm itself is made of, and whatever rides it, is not in the way.
-    """
-    points = self._arm_points() + self._arm_points(reach)
-    if travel.turn_y is not None:
-      points += [Coordinate(pt.x, travel.turn_y, 0) for pt in self._arm_points(reach)]
-    if not points:
-      return
-    widen = (
-      0.5 * math.hypot(held.get_absolute_size_x(), held.get_absolute_size_y()) if held else 0.0
-    )
-    widen = max(widen, self.iswap.gripper.get_absolute_size_y() / 2)
-    lo_x, hi_x = min(p.x for p in points) - widen, max(p.x for p in points) + widen
-    lo_y, hi_y = min(p.y for p in points) - widen, max(p.y for p in points) + widen
-    deck = self.deck
-    riding = {self.iswap.arm.resource} if self.iswap.arm.resource is not None else set()
-    bottom = traverse - self._hang_below_grip(held)
-    tallest, what = -math.inf, None
-    for thing in deck.get_all_children():
-      if thing is held or (held is not None and thing.is_in_subtree_of(held)):
-        continue
-      if any(thing is r or thing.is_in_subtree_of(r) for r in riding):
-        continue
-      corner = thing.get_location_wrt(deck)
-      x0, y0 = corner.x, corner.y
-      x1, y1 = x0 + thing.get_absolute_size_x(), y0 + thing.get_absolute_size_y()
-      if x1 < lo_x or x0 > hi_x or y1 < lo_y or y0 > hi_y:
-        continue
-      top = corner.z + thing.get_absolute_size_z()
-      if top > tallest:
-        tallest, what = top, thing
-    if what is not None and bottom < tallest + margin:
-      raise ValueError(
-        f"travelling at {traverse:.1f} mm, what the arm carries comes down to {bottom:.1f} mm, and "
-        f"{what.name} stands {tallest:.1f} mm tall under the way: travel at "
-        f"{tallest + margin + traverse - bottom:.1f} mm or higher"
-      )
-
   def _reach_and_travel(
     self, grip: Coordinate, facing: float, elbow: Optional[str]
   ) -> Tuple[Reach, Travel]:
@@ -518,7 +461,6 @@ class iSWAPTransport:
     open_margin: float = OPEN_MARGIN,
     grip_strength: int = GRIP_STRENGTH,
     width_tolerance: float = WIDTH_TOLERANCE,
-    check_clearance: bool = True,
   ) -> Plan:
     """Plan picking `resource` up, as `C0 PP` would: open, rise, travel, descend, grip, rise.
 
@@ -537,8 +479,6 @@ class iSWAPTransport:
       open_margin: how much wider than that the jaws open to take it, in mm.
       grip_strength: 0 to 9.
       width_tolerance: how far off `width` it may turn out to be, in mm.
-      check_clearance: whether to refuse a travel height at which the arm would not clear the
-        tallest thing under its way by 5 mm.
     """
     if self._held is not None:
       raise RuntimeError(f"already holding {self._held.resource.name}")
@@ -554,8 +494,6 @@ class iSWAPTransport:
     across = self._width_across(resource, facing) if width is None else width
     traverse = self.traverse_height if traverse_height is None else traverse_height
     end = traverse if end_height is None else end_height
-    if check_clearance:
-      self._check_clearance(reach, travel, max(traverse, self._grip_z_now()), None, CLEARANCE)
     steps: List[Step] = [
       Open(across + open_margin),
       Rise(max(traverse, self._grip_z_now())),
@@ -575,7 +513,6 @@ class iSWAPTransport:
     traverse_height: Optional[float] = None,
     end_height: Optional[float] = None,
     open_margin: float = OPEN_MARGIN,
-    check_clearance: bool = True,
   ) -> Plan:
     """Plan putting down what is held, as `C0 PR` would: rise, travel, descend, open, rise.
 
@@ -585,7 +522,7 @@ class iSWAPTransport:
       direction: the side it is let go of from. The side it was gripped from when None: a different
         side turns it by the difference.
       offset: added to where the jaws let go of it. The pick-up's when None.
-      elbow, traverse_height, end_height, open_margin, check_clearance: as `plan_pick_up`.
+      elbow, traverse_height, end_height, open_margin: as `plan_pick_up`.
     """
     held = self._held
     if held is None:
@@ -608,8 +545,6 @@ class iSWAPTransport:
     reach, travel = self._reach_and_travel(grip, facing, elbow)
     traverse = self.traverse_height if traverse_height is None else traverse_height
     end = traverse if end_height is None else end_height
-    if check_clearance:
-      self._check_clearance(reach, travel, max(traverse, self._grip_z_now()), resource, CLEARANCE)
     steps: List[Step] = [
       Rise(max(traverse, self._grip_z_now())),
       travel,

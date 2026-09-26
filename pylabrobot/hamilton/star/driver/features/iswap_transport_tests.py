@@ -133,13 +133,6 @@ class iSWAPTransportTests(unittest.IsolatedAsyncioTestCase):
           self.transport._sweep_clear(elbow, wrist, plan.reach, y), f"{name} {direction}"
         )
 
-  async def test_travelling_too_low_over_something_tall_is_refused(self):
-    await self.transport.pick_up_resource(self.plate, direction="left", end_height=236.0)
-    with self.assertRaises(ValueError) as refused:
-      self.transport.plan_drop(self.site, traverse_height=236.0)
-    self.assertIn("travel at", str(refused.exception))
-    self.transport.plan_drop(self.site, traverse_height=250.0)
-
 
 if __name__ == "__main__":
   unittest.main()
