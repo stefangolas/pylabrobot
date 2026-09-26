@@ -6157,7 +6157,11 @@ class STARBackend(HamiltonLiquidHandler, HamiltonHeaterShakerInterface):
   def _get_core_x(self) -> float:
     """Get the X coordinate for the CoRe grippers based on deck size and adjustment."""
     core_grippers = self._get_core_gripper_mount()
-    return core_grippers.get_location_wrt(self.deck).x + self.core_adjustment.x
+    return (
+      core_grippers.get_location_wrt(self.deck).x
+      + core_grippers.channel_x_center
+      + self.core_adjustment.x
+    )
 
   async def get_core(self, p1: int, p2: int):
     warnings.warn("Deprecated. Use pick_up_core_gripper_tools instead.", DeprecationWarning)

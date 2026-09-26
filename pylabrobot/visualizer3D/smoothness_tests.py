@@ -73,6 +73,17 @@ class SmoothnessTests(unittest.IsolatedAsyncioTestCase):
 
     await self.smooth(scenario, speed=4.0)
 
+  async def test_two_channels_pick_up_the_core_grip_tools_and_put_them_back(self):
+    async def scenario(star: Any) -> None:
+      holder = star.pipettes.core_gripper_holder()
+      tools = (holder.front_tool, holder.back_tool)
+      await star.pipettes.pick_up_core_gripper_tools(front_channel=7)
+      self.assertTrue(all(tool.parent is not holder for tool in tools))
+      await star.pipettes.return_core_gripper_tools()
+      self.assertTrue(all(tool.parent is holder for tool in tools))
+
+    await self.smooth(scenario)
+
   async def test_one_channel_picks_up_and_puts_back(self):
     async def scenario(star: Any) -> None:
       spot = star.deck.get_resource("tips_0").get_item("D5")

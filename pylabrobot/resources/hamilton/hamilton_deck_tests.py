@@ -150,7 +150,7 @@ class HamiltonDeckTests(unittest.TestCase):
           │
     (31)  ├── waste_block               Resource              (775.000, 115.000, 100.000)
           │   ├── teaching_tip_rack     TipRack               (780.900, 461.100, 100.000)
-          │   ├── core_grippers         HamiltonCoreGrippers  (797.500, 085.500, 200.500)
+          │   ├── core_grippers         HamiltonCoreGrippers  (778.000, 085.500, 200.500)
           │
     (32)  ├── trash                     Trash                 (800.000, 190.600, 137.100)
     """[1:]
@@ -224,7 +224,14 @@ class HamiltonDeckTests(unittest.TestCase):
     for deck, x in ((STARDeck(), 1337.5), (STARLetDeck(), 797.5)):
       with self.subTest(deck=type(deck).__name__):
         holder = deck.get_resource("core_grippers")
-        self.assertAlmostEqual(holder.get_location_wrt(deck).x, x)
+        assert isinstance(holder, HamiltonCoreGrippers)
+        self.assertAlmostEqual(holder.get_location_wrt(deck, x="c").x, x)
+        self.assertAlmostEqual(holder.get_location_wrt(deck).x + holder.channel_x_center, x)
+        # And the tools stand there, as the channels take them.
+        for tool in (holder.front_tool, holder.back_tool):
+          assert tool.pick_up_location is not None
+          pick_up = tool.pick_up_location.rotated(tool.get_absolute_rotation())
+          self.assertAlmostEqual((tool.get_location_wrt(deck) + pick_up).x, x)
         self.assertAlmostEqual(holder.get_location_wrt(deck).z, 200.5)
         self.assertAlmostEqual(holder.get_location_wrt(deck, z="t").z, 220.0)
 

@@ -652,6 +652,75 @@ class SimulatedPipettes(_Simulated, Pipettes):
     )
     return resp
 
+  def _core_tool_command_positions(
+    self, x: int, back_y: int, front_y: int, back_channel: int
+  ) -> Tuple[List[int], List[int], List[bool]]:
+    """A CO-RE tool command's two channels, laid out as a tip command's lists are."""
+    xs, ys, pattern = [0] * self.num_channels, [0] * self.num_channels, [False] * self.num_channels
+    for channel, y in ((back_channel, back_y), (back_channel + 1, front_y)):
+      xs[channel], ys[channel], pattern[channel] = x, y, True
+    return xs, ys, pattern
+
+  async def _unchecked_fw_pick_up_core_gripper_tools(
+    self,
+    x_position: int,
+    back_y_position: int,
+    front_y_position: int,
+    back_channel: int,
+    front_channel: int,
+    begin_z: int,
+    end_z: int,
+    minimum_traverse_height: int,
+  ):
+    resp = await super()._unchecked_fw_pick_up_core_gripper_tools(
+      x_position=x_position,
+      back_y_position=back_y_position,
+      front_y_position=front_y_position,
+      back_channel=back_channel,
+      front_channel=front_channel,
+      begin_z=begin_z,
+      end_z=end_z,
+      minimum_traverse_height=minimum_traverse_height,
+    )
+    # The stroke as a tip pick-up's: down onto the tools, and up carrying them. What the master
+    # reports of a channel carrying one is its grip line (`_below_stop_disc`), so the channels end
+    # with the stop disc that far above the traverse height.
+    tool = self.core_gripper_holder().front_tool
+    pick_up = tool.pick_up_location or tool.get_anchor("c", "c", "t")
+    below = pick_up.z - tool.fitting_depth - tool.grip_line_height
+    xs, ys, pattern = self._core_tool_command_positions(
+      x_position, back_y_position, front_y_position, back_channel
+    )
+    await self._record_tip_command(
+      xs, ys, pattern, minimum_traverse_height, overhang=below, descend_to=end_z
+    )
+    return resp
+
+  async def _unchecked_fw_return_core_gripper_tools(
+    self,
+    x_position: int,
+    back_y_position: int,
+    front_y_position: int,
+    begin_z: int,
+    end_z: int,
+    minimum_traverse_height: int,
+  ):
+    resp = await super()._unchecked_fw_return_core_gripper_tools(
+      x_position=x_position,
+      back_y_position=back_y_position,
+      front_y_position=front_y_position,
+      begin_z=begin_z,
+      end_z=end_z,
+      minimum_traverse_height=minimum_traverse_height,
+    )
+    channels = self.get_core_gripper_channels()
+    if channels:
+      xs, ys, pattern = self._core_tool_command_positions(
+        x_position, back_y_position, front_y_position, channels[0]
+      )
+      await self._record_tip_command(xs, ys, pattern, minimum_traverse_height, descend_to=end_z)
+    return resp
+
   async def move_stop_disc_to_z_position(self, channel: int, z: float, *args: Any, **kwargs: Any):
     resp = await super().move_stop_disc_to_z_position(channel, z, *args, **kwargs)
     self.update_location_by_reference_point(channel, z=z)

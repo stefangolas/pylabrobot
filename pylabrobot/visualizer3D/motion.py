@@ -311,6 +311,70 @@ def _tip_drop(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str
   return request
 
 
+def _as_tip_command(params: Dict[str, Any], back: int, channels: int) -> Dict[str, Any]:
+  """A CO-RE tool command's two channels in a tip command's lists: one X, a Y each."""
+  xs, ys, pattern = ["0"] * channels, ["0"] * channels, [False] * channels
+  for channel, y in ((back, params["ya"]), (back + 1, params["yb"])):
+    xs[channel], ys[channel], pattern[channel] = params["xs"], y, True
+  return {**params, "xp": xs, "yp": ys, "tm": pattern}
+
+
+def _below_grip_line(tool: Any) -> float:
+  """How far a mounted CO-RE grip tool's grip line hangs below the stop disc, in mm: what the
+  master reports a channel carrying one at."""
+  pick_up = tool.pick_up_location or tool.get_anchor("c", "c", "t")
+  return float(pick_up.z - tool.fitting_depth - tool.grip_line_height)
+
+
+def _core_tool_pickup(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
+  """`C0 ZT`: down onto the parked tools, and up carrying them, as a tip pick-up."""
+  back = int(params["pa"]) - 1
+  holder = frames.pipettes.core_gripper_holder()
+  tools = {back: holder.back_tool, back + 1: holder.front_tool}
+  request = _stroke(
+    frames,
+    "core_tool_pickup",
+    command,
+    _as_tip_command(params, back, len(frames.channels)),
+    traverse=_tenths(params["th"]),
+    down={c: frames.lowest_point_z(c, _tenths(params["tz"]), 0.0) for c in tools},
+    end={
+      c: frames.lowest_point_z(c, _tenths(params["th"]), _below_grip_line(tool))
+      for c, tool in tools.items()
+    },
+  )
+  for c, tool in tools.items():
+    shaft = frames.shaft(c)
+    if shaft is not None:
+      request["attach"].append(_handover(tool, shaft, _mounted_location(shaft, tool)))
+  return request
+
+
+def _core_tool_return(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
+  """`C0 ZS`: down into the holder with the tools, leaving each where it was parked, and up."""
+  channels = frames.pipettes.get_core_gripper_channels()
+  if len(channels) != 2:
+    raise ValueError("a tool return needs two channels carrying tools")
+  request = _stroke(
+    frames,
+    "core_tool_return",
+    command,
+    _as_tip_command(params, channels[0], len(frames.channels)),
+    traverse=_tenths(params["th"]),
+    down={c: frames.lowest_point_z(c, _tenths(params["tz"])) for c in channels},
+    end={c: frames.lowest_point_z(c, _tenths(params["te"]), 0.0) for c in channels},
+  )
+  for c in channels:
+    shaft = frames.shaft(c)
+    if shaft is None or shaft.tip is None:
+      continue
+    holder, location, rotation = frames.pipettes._parked_core_tools[shaft.tip.name]
+    handover = _handover(shaft.tip, holder, _xyz(location))
+    handover["rotation"] = _xyz(rotation)
+    request["attach"].append(handover)
+  return request
+
+
 def _aspirate(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
   involved = _involved(_as_list(params["tm"]))
 
@@ -764,6 +828,10 @@ def star_motion(
       return _tip_pickup(frames, key, params)
     if key == "C0TR":
       return _tip_drop(frames, key, params)
+    if key == "C0ZT":
+      return _core_tool_pickup(frames, key, params)
+    if key == "C0ZS":
+      return _core_tool_return(frames, key, params)
     if key == "C0AS":
       return _aspirate(frames, key, params)
     if key == "C0JY":

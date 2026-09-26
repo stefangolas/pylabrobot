@@ -46,10 +46,14 @@ from pylabrobot.lib.liquid_handling.pipette_batch_scheduling import (
 from pylabrobot.resources.container import Container
 from pylabrobot.resources.coordinate import Coordinate
 from pylabrobot.resources.errors import HasTipError, NoTipError
+from pylabrobot.resources.hamilton.core_gripper_tools import HamiltonCoreGripperTool
+from pylabrobot.resources.hamilton.core_grippers import HamiltonCoreGrippers
 from pylabrobot.resources.hamilton.tip_creators import HamiltonTip, TipDropMethod, TipPickupMethod
 from pylabrobot.resources.liquid import Liquid
 from pylabrobot.resources.n_channel_pipettes import NChannelPipette, TipMountingShaft
+from pylabrobot.resources.head_tool import HeadTool
 from pylabrobot.resources.resource import Resource
+from pylabrobot.resources.rotation import Rotation
 from pylabrobot.resources.tip import Tip
 from pylabrobot.resources.tip_rack import TipSpot, tip_origin
 from pylabrobot.resources.volume_tracker import VolumeTracker, does_volume_tracking
@@ -62,6 +66,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ANY_COLUMN = 1e6
+
+# What the firmware's tip type table calls the CO-RE grip tool (cat. 186100): built in, never
+# written by `C0 TT`, so no tip is given this index.
+CORE_GRIPPER_TIP_TYPE_INDEX = 14
+
+# Legacy's heights for the CO-RE grip tools (`STARBackend.pick_up_core_gripper_tools`,
+# `return_core_gripper_tools`), which it sends as absolutes against tools whose tops stand at
+# 235.0 mm - as the STAR decks' holders model them. Kept here as the same heights below a parked
+# tool's top, so they follow the model: the pick-up begins at the top and ends a collar's height
+# lower; the return begins 20 mm and ends 30 mm below where the top is to stand.
+CORE_TOOL_PICK_UP_BEGIN_BELOW_TOP = 0.0
+CORE_TOOL_PICK_UP_END_BELOW_TOP = 10.0
+CORE_TOOL_RETURN_BEGIN_BELOW_TOP = 20.0
+CORE_TOOL_RETURN_END_BELOW_TOP = 30.0
 """An X tolerance wider than any deck: X alone never splits a tip command into batches, so spots
 spread across columns go out in one, as legacy sends them."""
 
@@ -410,6 +428,9 @@ class Pipettes:
     # The height the channels travel at when a command names none, in mm. Legacy STARBackend's
     # channel traversal height.
     self.default_minimum_traverse_height: float = 245.0
+    # Where each CO-RE grip tool the channels carry was parked, by tool name: the holder, its
+    # location on it and how it was turned. `return_core_gripper_tools` puts it back there.
+    self._parked_core_tools: Dict[str, Tuple[Resource, Coordinate, Rotation]] = {}
 
   # -- addressing ------------------------------------------------------------
 
@@ -753,6 +774,16 @@ class Pipettes:
     shaft = self.shaft(channel)
     tip = shaft.tip if shaft is not None else None
     return tip if isinstance(tip, Tip) else None
+
+  def get_mounted_tool(self, channel: int) -> Optional[HeadTool]:
+    """Whatever the model has on a channel - a tip or a tool such as a CO-RE grip tool - or None.
+
+    Args:
+      channel: which channel, 0-indexed from the back.
+    """
+    shaft = self.shaft(channel)
+    tool = shaft.tip if shaft is not None else None
+    return tool if isinstance(tool, HeadTool) else None
 
   def _release_modelled_tip(self, channel: int) -> Optional[Tip]:
     """Take a channel's tip off its shaft in the model, leaving it assigned to nothing.
@@ -3838,7 +3869,7 @@ class Pipettes:
     )
 
   def _tip_traverse_height(
-    self, tips: Sequence[Tip], minimum_traverse_height_start: Optional[float]
+    self, tips: Sequence[HeadTool], minimum_traverse_height_start: Optional[float]
   ) -> float:
     """How high the channels travel through a tip command, in mm.
 
@@ -3856,10 +3887,10 @@ class Pipettes:
     Raises:
       ValueError: If the height is below the safety height or above what the tip can reach.
     """
-    # Traverse height also applies to tips on unselected channels.
+    # Traverse height also applies to tips - and tools - on unselected channels.
     tips = list(tips)
     for channel in range(self.num_channels):
-      mounted = self.get_mounted_tip(channel)
+      mounted = self.get_mounted_tool(channel)
       if mounted is not None:
         tips.append(mounted)
     overhang = max(tip.get_size_z() - tip.fitting_depth for tip in tips)
@@ -4050,7 +4081,7 @@ class Pipettes:
       raise TypeError("the STAR picks up Hamilton tips")
     hamilton_tips = cast(List[HamiltonTip], tips)
     for channel in use_channels:
-      mounted = self.get_mounted_tip(channel)
+      mounted = self.get_mounted_tool(channel)
       if mounted is not None:
         raise HasTipError(f"channel {channel} already carries {mounted.name}")
       if self.shaft(channel) is None:
@@ -4097,6 +4128,315 @@ class Pipettes:
         minimum_traverse_height_start=minimum_traverse_height_start,
         pickup_method=pickup_method,
       )
+
+  # -- CO-RE grip tools ---------------------------------------------------------------------------
+
+  def core_gripper_holder(self) -> HamiltonCoreGrippers:
+    """The holder the CO-RE grip tools park in, on this driver's deck.
+
+    Raises:
+      RuntimeError: If there is no deck, or not exactly one holder on it.
+    """
+    deck = self._driver.deck
+    if deck is None:
+      raise RuntimeError("the CO-RE grip tools are found on the deck; this driver was given none")
+    holders = [r for r in deck.get_all_children() if isinstance(r, HamiltonCoreGrippers)]
+    if len(holders) != 1:
+      raise RuntimeError(
+        f"the deck has {len(holders)} CO-RE gripper holders; one is where the tools park"
+      )
+    return holders[0]
+
+  def _tool_pick_up_point(
+    self, tool: HeadTool, standing: Optional[Tuple[Resource, Coordinate, Rotation]] = None
+  ) -> Coordinate:
+    """Where a channel takes hold of a tool, on the deck in mm: its pick-up location, turned as the
+    tool is turned - the point `TipMountingShaft.mount_tip` puts on the shaft's axis.
+
+    Args:
+      tool: the tool.
+      standing: where it stands instead of where it is: a parent, a location on it and a rotation.
+    """
+    deck = self._driver.deck
+    assert deck is not None
+    pick_up = tool.pick_up_location or tool.get_anchor("c", "c", "t")
+    if standing is None:
+      return tool.get_location_wrt(deck) + pick_up.rotated(tool.get_absolute_rotation())
+    parent, location, rotation = standing
+    return parent.get_location_wrt(deck) + location + pick_up.rotated(rotation)
+
+  def get_core_gripper_channels(self) -> List[int]:
+    """The channels the model has carrying CO-RE grip tools, back to front."""
+    return [
+      channel
+      for channel in range(self.num_channels)
+      if isinstance(self.get_mounted_tool(channel), HamiltonCoreGripperTool)
+    ]
+
+  async def _unchecked_fw_pick_up_core_gripper_tools(
+    self,
+    x_position: int,
+    back_y_position: int,
+    front_y_position: int,
+    back_channel: int,
+    front_channel: int,
+    begin_z: int,
+    end_z: int,
+    minimum_traverse_height: int,
+  ):
+    """Send the tool pick-up as it is given, in tenths of a millimetre, the channels 0-indexed.
+    `C0 ZT`, as legacy sends it."""
+    return await self._driver.send_command(
+      module="C0",
+      command="ZT",
+      subsystem=_FirmwareLock.CHANNELS,
+      read_timeout=120,
+      xs=f"{x_position:05}",
+      xd="0",
+      ya=f"{back_y_position:04}",
+      yb=f"{front_y_position:04}",
+      pa=f"{back_channel + 1:02}",
+      pb=f"{front_channel + 1:02}",
+      tp=f"{begin_z:04}",
+      tz=f"{end_z:04}",
+      th=minimum_traverse_height,
+      tt=f"{CORE_GRIPPER_TIP_TYPE_INDEX:02}",
+    )
+
+  async def _unchecked_fw_return_core_gripper_tools(
+    self,
+    x_position: int,
+    back_y_position: int,
+    front_y_position: int,
+    begin_z: int,
+    end_z: int,
+    minimum_traverse_height: int,
+  ):
+    """Send the tool return as it is given, in tenths of a millimetre. `C0 ZS`, as legacy sends it:
+    the firmware knows which channels carry the tools."""
+    return await self._driver.send_command(
+      module="C0",
+      command="ZS",
+      subsystem=_FirmwareLock.CHANNELS,
+      read_timeout=120,
+      xs=f"{x_position:05}",
+      xd="0",
+      ya=f"{back_y_position:04}",
+      yb=f"{front_y_position:04}",
+      tp=f"{begin_z:04}",
+      tz=f"{end_z:04}",
+      th=minimum_traverse_height,
+      # Where the channels are left, bare: the height they travelled at, as legacy leaves them.
+      te=minimum_traverse_height,
+    )
+
+  @staticmethod
+  def _core_offsets(
+    front_offset: Optional[Coordinate], back_offset: Optional[Coordinate]
+  ) -> Tuple[Coordinate, Coordinate]:
+    """Both channels' offsets, checked as legacy checks them: one X and one Z for both, the front's
+    when only it is given."""
+    if front_offset is not None and back_offset is not None:
+      if front_offset.x != back_offset.x:
+        raise ValueError("front_offset.x and back_offset.x must be the same")
+      if front_offset.z != back_offset.z:
+        raise ValueError("front_offset.z and back_offset.z must be the same")
+    front = front_offset or Coordinate.zero()
+    back = back_offset or Coordinate.zero()
+    shared = front_offset if front_offset is not None else back
+    return Coordinate(shared.x, front.y, shared.z), Coordinate(shared.x, back.y, shared.z)
+
+  async def pick_up_core_gripper_tools(
+    self,
+    front_channel: int,
+    front_offset: Optional[Coordinate] = None,
+    back_offset: Optional[Coordinate] = None,
+    minimum_traverse_height: Optional[float] = None,
+  ) -> None:
+    """Pick up the two CO-RE grip tools parked in the deck's holder, one on each of two adjacent
+    channels, and mount them on the channels' shafts.
+
+    Where the channels go is where the model has the tools: each tool's pick-up point, the point a
+    shaft takes hold of. The heights are legacy's, below the tools' tops: the pick-up begins at the
+    top and ends a collar's height (10 mm) lower. The front tool goes on `front_channel`, the back
+    tool on the channel behind it.
+
+    Args:
+      front_channel: the channel that takes the front tool, 1 or more; the one behind it (one lower)
+        takes the back tool.
+      front_offset: added to where the front channel goes, in mm. Its X and Z move both channels
+        when `back_offset` is not given.
+      back_offset: added to where the back channel goes, in mm.
+      minimum_traverse_height: how high the channels travel first, in mm. As high as a tool on a
+        channel can go when None, as the tip commands travel.
+
+    Raises:
+      RuntimeError: If the iSWAP is not parked, there is no holder, or a tool is not in it.
+      HasTipError: If either channel already carries a tip or a tool.
+      ValueError: If the channels or the offsets are out of range.
+    """
+    if not 0 < front_channel < self.num_channels:
+      raise ValueError(f"front_channel must be between 1 and {self.num_channels - 1}")
+    back_channel = front_channel - 1
+    await self._require_iswap_parked()
+    holder = self.core_gripper_holder()
+    tools: Dict[int, HeadTool] = {back_channel: holder.back_tool, front_channel: holder.front_tool}
+    for channel, tool in tools.items():
+      mounted = self.get_mounted_tool(channel)
+      if mounted is not None:
+        raise HasTipError(f"channel {channel} already carries {mounted.name}")
+      if self.shaft(channel) is None:
+        raise RuntimeError(f"channel {channel} is not modelled; set the driver up with its deck")
+      if tool.parent is not holder:
+        raise RuntimeError(f"{tool.name} is not parked in {holder.name}")
+    front, back = self._core_offsets(front_offset, back_offset)
+    points = {
+      back_channel: self._tool_pick_up_point(tools[back_channel]) + back,
+      front_channel: self._tool_pick_up_point(tools[front_channel]) + front,
+    }
+    if round(points[back_channel].x, 1) != round(points[front_channel].x, 1):
+      raise ValueError(
+        f"the tools are parked at different X ({points[back_channel].x:.1f}, "
+        f"{points[front_channel].x:.1f} mm); both channels go to one"
+      )
+    if points[back_channel].y <= points[front_channel].y:
+      raise ValueError("the back tool must stand behind the front tool")
+    x, top = points[front_channel].x, points[front_channel].z
+    self._check_reachable("x", round(x, 1))
+    for point in points.values():
+      self._check_reachable("y", round(point.y, 1))
+    traverse = self._tip_traverse_height(list(tools.values()), minimum_traverse_height)
+
+    # Where each tool stands, to put it back there.
+    parked = {
+      tool.name: (holder, cast(Coordinate, tool.location), tool.rotation) for tool in tools.values()
+    }
+    command_error: Optional[BaseException] = None
+    collected = {channel: True for channel in tools}
+    try:
+      await self._unchecked_fw_pick_up_core_gripper_tools(
+        x_position=round(x * 10),
+        back_y_position=round(points[back_channel].y * 10),
+        front_y_position=round(points[front_channel].y * 10),
+        back_channel=back_channel,
+        front_channel=front_channel,
+        begin_z=round((top - CORE_TOOL_PICK_UP_BEGIN_BELOW_TOP) * 10),
+        end_z=round((top - CORE_TOOL_PICK_UP_END_BELOW_TOP) * 10),
+        minimum_traverse_height=round(traverse * 10),
+      )
+    except BaseException as failure:
+      command_error = failure
+      # As a tip pick-up takes it: what the channels sense they carry is what they collected.
+      try:
+        presence = await self.sense_tip_presence()
+        collected = {channel: bool(presence[channel]) for channel in tools}
+      except BaseException:
+        collected = {channel: False for channel in tools}
+      raise
+    finally:
+      try:
+        for channel, tool in tools.items():
+          shaft = self.shaft(channel)
+          if collected[channel] and shaft is not None:
+            shaft.mount_tip(tool)
+            self._parked_core_tools[tool.name] = parked[tool.name]
+      except Exception:
+        # What the device said is the error worth having: this one only says the model is stale.
+        if command_error is None:
+          raise
+        logger.exception("could not record which tools the channels collected")
+      await self._record_after_command()
+
+  async def return_core_gripper_tools(
+    self,
+    front_offset: Optional[Coordinate] = None,
+    back_offset: Optional[Coordinate] = None,
+    minimum_traverse_height: Optional[float] = None,
+  ) -> None:
+    """Put the CO-RE grip tools the channels carry back where they were picked up from.
+
+    The channels go to where each tool's pick-up point stood when it was parked, and the heights
+    are legacy's below that tool top: the return begins 20 mm and ends 30 mm lower.
+
+    Args:
+      front_offset: added to where the front channel goes, in mm. Its X and Z move both channels
+        when `back_offset` is not given.
+      back_offset: added to where the back channel goes, in mm.
+      minimum_traverse_height: how high the channels travel first, in mm. As high as the tools let
+        them when None.
+
+    Raises:
+      RuntimeError: If the iSWAP is not parked, or the channels do not carry two adjacent tools
+        picked up by `pick_up_core_gripper_tools`.
+    """
+    await self._require_iswap_parked()
+    channels = self.get_core_gripper_channels()
+    if len(channels) != 2 or channels[1] != channels[0] + 1:
+      raise RuntimeError(f"the channels carrying CO-RE grip tools are {channels}, not two adjacent")
+    back_channel, front_channel = channels
+    tools = {channel: cast(HeadTool, self.get_mounted_tool(channel)) for channel in channels}
+    for tool in tools.values():
+      if tool.name not in self._parked_core_tools:
+        raise RuntimeError(f"where {tool.name} was parked is not known; it was not picked up here")
+    places = {channel: self._parked_core_tools[tool.name] for channel, tool in tools.items()}
+    front, back = self._core_offsets(front_offset, back_offset)
+    points = {
+      back_channel: self._tool_pick_up_point(tools[back_channel], places[back_channel]) + back,
+      front_channel: self._tool_pick_up_point(tools[front_channel], places[front_channel]) + front,
+    }
+    x, top = points[front_channel].x, points[front_channel].z
+    traverse = self._tip_traverse_height([], minimum_traverse_height)
+
+    command_error: Optional[BaseException] = None
+    returned = {channel: True for channel in channels}
+    try:
+      await self._unchecked_fw_return_core_gripper_tools(
+        x_position=round(x * 10),
+        back_y_position=round(points[back_channel].y * 10),
+        front_y_position=round(points[front_channel].y * 10),
+        begin_z=round((top - CORE_TOOL_RETURN_BEGIN_BELOW_TOP) * 10),
+        end_z=round((top - CORE_TOOL_RETURN_END_BELOW_TOP) * 10),
+        minimum_traverse_height=round(traverse * 10),
+      )
+    except BaseException as failure:
+      command_error = failure
+      try:
+        presence = await self.sense_tip_presence()
+        returned = {channel: not presence[channel] for channel in channels}
+      except BaseException:
+        returned = {channel: False for channel in channels}
+      raise
+    finally:
+      try:
+        for channel in channels:
+          shaft = self.shaft(channel)
+          if not returned[channel] or shaft is None or shaft.tip is None:
+            continue
+          released = shaft.release_tip()
+          holder, location, rotation = places[channel]
+          released.rotation = rotation
+          holder.assign_child_resource(released, location=location)
+          del self._parked_core_tools[released.name]
+      except Exception:
+        if command_error is None:
+          raise
+        logger.exception("could not record which tools the channels put back")
+      await self._record_after_command()
+
+  @asynccontextmanager
+  async def core_gripper_tools(self, front_channel: int, **kwargs: Any):
+    """The CO-RE grip tools on `front_channel` and the channel behind it for the block, put back
+    after it.
+
+    Args:
+      front_channel: as `pick_up_core_gripper_tools`.
+      kwargs: passed to `pick_up_core_gripper_tools`.
+    """
+    await self.pick_up_core_gripper_tools(front_channel, **kwargs)
+    try:
+      yield
+    finally:
+      await self.return_core_gripper_tools()
 
   # -- tip drop --------------------------------------------------
 

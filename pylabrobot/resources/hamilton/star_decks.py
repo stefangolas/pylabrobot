@@ -146,10 +146,14 @@ class HamiltonSTARDeck(HamiltonDeck):
         location=Coordinate(x=x, y=105.550 - 26 - 9.5, z=205) - waste_block.location,
       )
     elif core_grippers == "1000uL-5mL-on-waste":  # "on waste"
+      # Probed: where the channels take the tools, which stand on the holder's centre in X.
       x = 1337.5 if self.num_tracks == STAR_NUM_TRACKS else 797.5
+      holder = hamilton_core_gripper_1000ul_5ml_on_waste(
+        name=self.get_component_name("core_grippers")
+      )
       waste_block.assign_child_resource(
-        hamilton_core_gripper_1000ul_5ml_on_waste(name=self.get_component_name("core_grippers")),
-        location=Coordinate(x=x, y=125 - 18 - 21.5, z=200.5)  # probed
+        holder,
+        location=Coordinate(x=x - holder.channel_x_center, y=125 - 18 - 21.5, z=200.5)  # probed
         - waste_block.location,
       )
 

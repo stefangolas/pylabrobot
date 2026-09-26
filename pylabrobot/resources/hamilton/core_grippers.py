@@ -27,7 +27,15 @@ class HamiltonCoreGrippers(Resource):
     rotation=None,
     category="core_grippers",
     barcode=None,
+    channel_x_center: float = 0.0,
   ):
+    """
+    Args:
+      back_channel_y_center, front_channel_y_center: where the back and the front channel take
+        their tools, in Y from the holder's front, in mm.
+      channel_x_center: where both channels take them, in X from the holder's left, in mm. 0 puts
+        the tools on the holder's own x, as a holder serialized before this was stated had them.
+    """
     super().__init__(
       name=name,
       size_x=size_x,
@@ -40,6 +48,7 @@ class HamiltonCoreGrippers(Resource):
     )
     self.back_channel_y_center = back_channel_y_center
     self.front_channel_y_center = front_channel_y_center
+    self.channel_x_center = channel_x_center
 
   def _comparable_children(self) -> List[Resource]:
     """Everything but the tools parked here, which are state."""
@@ -65,6 +74,7 @@ class HamiltonCoreGrippers(Resource):
       **super().serialize(),
       "back_channel_y_center": self.back_channel_y_center,
       "front_channel_y_center": self.front_channel_y_center,
+      "channel_x_center": self.channel_x_center,
     }
     children = [child.serialize() for child in self._comparable_children()]
     if children:
@@ -86,6 +96,7 @@ def prep_core_gripper_holder(name: str = "core_grippers") -> HamiltonCoreGripper
     # the two tools stand 18 mm apart, centred on the holder
     back_channel_y_center=size_y / 2 + 9.0,
     front_channel_y_center=size_y / 2 - 9.0,
+    channel_x_center=size_x / 2,
     size_x=size_x,
     size_y=size_y,
     size_z=size_z,
@@ -172,6 +183,8 @@ def hamilton_core_gripper_1000ul_5ml_on_waste(
     size_z=19.5,  # measured
     back_channel_y_center=18 + 21.5,
     front_channel_y_center=0 + 21.5,
+    # The tools stand on the holder's centre in X - its left outer edge is 19.5 mm from them.
+    channel_x_center=39 / 2,
     model=hamilton_core_gripper_1000ul_5ml_on_waste.__name__,
   )
 
@@ -184,7 +197,7 @@ def hamilton_core_gripper_1000ul_5ml_on_waste(
   grippers.assign_child_resource(
     front,
     location=Coordinate(
-      x=grippers.get_size_x() / 2 - pick_up.x,
+      x=grippers.channel_x_center - pick_up.x,
       y=grippers.front_channel_y_center - pick_up.y,
       z=tool_top - pick_up.z,
     ),
@@ -195,7 +208,7 @@ def hamilton_core_gripper_1000ul_5ml_on_waste(
   grippers.assign_child_resource(
     back,
     location=Coordinate(
-      x=grippers.get_size_x() / 2 + pick_up.x,
+      x=grippers.channel_x_center + pick_up.x,
       y=grippers.back_channel_y_center + pick_up.y,
       z=tool_top - pick_up.z,
     ),

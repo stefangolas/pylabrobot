@@ -31,7 +31,10 @@ from pylabrobot.hamilton.star.driver.features.cover import FrontCover
 from pylabrobot.hamilton.star.driver.features.head96 import Head96
 from pylabrobot.hamilton.star.driver.features.head384 import Head384
 from pylabrobot.hamilton.star.driver.features.iswap import iSWAP, iSWAPConfiguration
-from pylabrobot.hamilton.star.driver.features.pipettes import Pipettes
+from pylabrobot.hamilton.star.driver.features.pipettes import (
+  CORE_GRIPPER_TIP_TYPE_INDEX,
+  Pipettes,
+)
 from pylabrobot.hamilton.star.driver.features.x_arm import XArm, XArmConfiguration
 from pylabrobot.hamilton.star.driver.lock import _FirmwareLock
 from pylabrobot.hamilton.star.resource_model import (
@@ -57,8 +60,6 @@ from pylabrobot.serializer import serialize
 
 logger = logging.getLogger(__name__)
 
-# What the firmware's tip type table calls the CO-RE grip tool (cat. 186100).
-CORE_GRIPPER_TIP_TYPE_INDEX = 14
 
 # What a declaration and a device have to agree on for the one to stand for the other: what is
 # fitted and how much of it. Everything else is either identity, which is the device's own, or
