@@ -94,13 +94,42 @@ Findings recorded along the way:
 | 4.6 | CO-RE gripper plate transport (the paddles carry a plate), analogous to `iSWAPTransport`, with collision sweeps | Feature. Medium | 3.4 |
 | 4.7 | Generic collision check of *decoded* motions (any command, not only iSWAP plans) | Reuses the decoder output. Medium | 3.7 |
 | 4.8 | Planner ranks elbow configurations by collisions; refuse drops whose placement overlaps a neighbour | Found problems 2 and 3 of section 3. Small | 3.7 |
-| 4.9 | Liquid drawn as a surface (height from `Container.compute_height_from_volume`), lowered over the dwell; the tip column rises | Visual fidelity. Medium | 4.2 |
+| 4.9 | Liquid drawn as a volume, not a tint: the cavity below a level plane, lowered over the dwell; the tip column rises. Phased L1–L3, see section 4a | Visual fidelity. Large overall; L1 small–medium | 4.2 (L2) |
 | 4.10 | Dispense (`C0 DS`) and side touch, once v1 has dispense | Blocked upstream | v1 dispense |
 | 4.11 | Park `C0 PG`, autoload, initialisation | Undocumented; heuristic, marked | — |
 | 4.12 | Model validator (spatial facts with sources; AI-drafted parametric models, e.g. the 96-head) | Proposal (earlier notes, section 10a) | 3.9 |
 | 4.13 | Validation on hardware: transport ordering, CO-RE X fix, timing | Needs a STAR | — |
 | 4.15 | More trace fits: channel and 96-head Y/Z over many distances, the iSWAP's compound commands against their parameters, per-command overheads on the page, and the X/Z overlap in tip commands | Measured, not guessed. Medium | `tools/hxusbcomm_timing.py` |
 | 4.14 | Reconcile failed commands: on an error answer, stop the motion and move (not jump) to the position read back; test with injected simulator errors | The page animates intent before the answer. Small–medium | 4.4 |
+
+---
+
+## 4a. Liquid volumes (scope of 4.9)
+
+Today a vessel's cavity is its box, tinted by what it holds (`static/boxes.js`). The plan draws the liquid itself.
+
+**Model.** The liquid is the cavity's interior below a horizontal plane at height h, with h solving V(h) = ∫₀ʰ A(z) dz = V_tracked, where A(z) is the cavity's cross-section area at z. Filling sweeps out the volume slice by slice, each slice conforming to the cavity.
+
+**The bottom's shape needs no special case.** Whether the lowest region is a point (V-bottom, A ∝ z²), a line (V-trough, A ∝ z), a spherical cap (U, A ≈ ∝ z near the bottom) or a plane (flat, A constant) shows up as the exponent of A(z) near z = 0. The one real complication is a cavity with several basins (divided reservoirs, a trough with a sump): they fill independently up to the lowest ridge, then spill (fill-spill). Rare in labware; deferred to L3.
+
+**Geometry sources, in order of trust.**
+1. `Container.compute_height_from_volume` / `compute_volume_from_height` where the definition has them (about 26 definitions): the height is PLR's own (PLR tag).
+2. Otherwise an analytic profile from the definition: `WellBottomType`/`TubeBottomType`/`TroughBottomType` × `CrossSectionType`, size, `material_z_thickness`. A surface of revolution (circle) or an extrusion (rectangle).
+3. GLB models (`visualizer3D/glb.py`): slice the interior mesh at z to get A(z) and the slice polygons.
+
+Where 1 and 2 both exist, compare V(h): a validator for free, and mismatches are findings.
+
+**Drawing.** One liquid mesh per container model, dense rings in z, with h as a per-instance attribute; the vertex shader clamps z to h. One draw call per model (384 wells). Exact when the cross-section never narrows upward (wells, tubes, troughs); a neck or sump needs CPU slicing (L3).
+
+**Animation.** During an aspiration's dwell the page already knows `av`, `as` and `wt`; V(t) = V₀ − flow·t maps through V⁻¹ to h(t), and the tip follows the surface (4.2). Dispense is the reverse, blocked on v1 dispense (4.10). A failed command must put the level back (4.14).
+
+**Not in scope.** Meniscus, sloshing, tilt during transport, falling drops, mixing of several liquids.
+
+| Phase | Work | Size | Depends on |
+|---|---|---|---|
+| L1 | Static liquid solids from PLR definitions (flat/U/V × circle/rectangle), height from PLR's function where present; validator against it; tests | Small–medium | — |
+| L2 | Level animated over the aspiration dwell; tip follows the surface | Medium | 4.2 |
+| L3 | Profiles sliced from GLB meshes; multi-basin fill-spill | Medium–large | GLBs |
 
 ---
 
