@@ -71,6 +71,7 @@ pylabrobot = [
   "hamilton/prep/resource_model/*.glb",
   "resources/hamilton/resource_model/*.glb",
   "resources/alpaqua/resource_model/*.glb",
+  "resources/corning/resource_model/*.glb",
   "byonoy/resource_model/*.glb",
 ]
 
