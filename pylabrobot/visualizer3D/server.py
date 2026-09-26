@@ -30,6 +30,7 @@ from websockets.http11 import Request, Response
 from pylabrobot.resources.coordinate import Coordinate
 from pylabrobot.resources.resource import Resource
 
+from .motion import star_motion
 from .scene import (
   STATE_DECIMALS,
   Scene,
@@ -205,6 +206,8 @@ class Viewer3D:
   _moved: Set[str]
   _scene_timer: Optional[asyncio.TimerHandle]
   _subscribed: Dict[int, Tuple[Resource, Callable[[Dict[str, Any]], None]]]
+  _motions: Dict[int, Tuple["asyncio.Future[None]", Set[Any]]]
+  _motion_count: int
 
   # -- packing -----------------------------------------------------------------
 
@@ -594,6 +597,8 @@ class Viewer3D:
     greeted = False
     try:
       async for message in websocket:
+        if self._on_motion_played(websocket, message):
+          continue
         # A page says hello once. A repeat is still read, or keepalive stalls, but not kept.
         if not greeted:
           greeted = self._on_client_message(message)
@@ -601,6 +606,92 @@ class Viewer3D:
       pass
     finally:
       self._clients.discard(websocket)
+      # A page that has gone plays nothing more, so nothing waits for it.
+      self._release_motions(websocket)
+
+  # -- motion ------------------------------------------------------------------
+
+  # How long a command waits for a page to play its motion before going on without it.
+  MOTION_TIMEOUT_S = 120.0
+
+  def attach_motion(self, driver: Any) -> None:
+    """Act out what a simulated device's drives do, and hold each command until a page has.
+
+    Each firmware command the driver sends is read for what it moves (`star_motion`), sent to the
+    pages, and waited on until every one of them says it has played it: the slowest page sets the
+    pace, and a page in a background tab, which gets no frames, jumps to the end and answers at
+    once. The model then records where the command ended, which is where the pages have just
+    brought everything. With no page connected, nothing is waited for.
+
+    Args:
+      driver: a simulated driver with a `motion_listener`, such as `STARSimulationDriver`.
+    """
+    driver.motion_listener = functools.partial(self._act_out, driver)
+
+  def detach_motion(self, driver: Any) -> None:
+    driver.motion_listener = None
+
+  async def _act_out(self, driver: Any, module: str, command: str, params: Dict[str, Any]) -> None:
+    if not self._clients or self._loop is None or asyncio.get_running_loop() is not self._loop:
+      return
+    request = star_motion(driver, module, command, params)
+    if request is None:
+      return
+    # A change is handed to the loop to be queued, so let what the last command changed reach the
+    # page first: a motion starts from where the page has everything.
+    await asyncio.sleep(0)
+    # A change of shape - a tip taken onto a shaft - waits out its debounce, and holds the
+    # positions back with it; the command that caused it is over, so it goes now.
+    if self._scene_timer is not None:
+      self._scene_timer.cancel()
+      await self._flush_scene()
+    if self._pending:
+      await self._flush()
+    self._motion_count += 1
+    motion_id = self._motion_count
+    played: "asyncio.Future[None]" = self._loop.create_future()
+    # Registered before sending: a page in the background answers as soon as it is told.
+    pages = set(self._clients)
+    self._motions[motion_id] = (played, pages)
+    try:
+      await self._broadcast("motion", {"id": motion_id, **request})
+      # A page that could not be sent to has been dropped, and will not answer.
+      pages.intersection_update(self._clients)
+      if not pages:
+        return
+      await asyncio.wait_for(asyncio.shield(played), self.MOTION_TIMEOUT_S)
+    except asyncio.TimeoutError:
+      print(f"viewer: no page played {module}{command} within {self.MOTION_TIMEOUT_S} s; going on")
+    finally:
+      self._motions.pop(motion_id, None)
+
+  def _on_motion_played(self, websocket: Any, message: Any) -> bool:
+    """Take a page's word that it has played a motion; whether the message was that."""
+    try:
+      parsed = json.loads(message)
+    except (TypeError, ValueError):
+      return False
+    if not isinstance(parsed, dict) or parsed.get("event") != "motion_done":
+      return False
+    data = parsed.get("data")
+    motion_id = data.get("id") if isinstance(data, dict) else None
+    waiting = self._motions.get(motion_id) if isinstance(motion_id, int) else None
+    if waiting is not None:
+      played, pages = waiting
+      pages.discard(websocket)
+      if not pages and not played.done():
+        played.set_result(None)
+    return True
+
+  def _release_motions(self, websocket: Any = None) -> None:
+    """Stop waiting on one page, or on every page when none is named."""
+    for played, pages in self._motions.values():
+      if websocket is None:
+        pages.clear()
+      else:
+        pages.discard(websocket)
+      if not pages and not played.done():
+        played.set_result(None)
 
   # -- static files ------------------------------------------------------------
 
@@ -773,6 +864,9 @@ class Viewer3D:
     self.rebuilds = 0  # how many scene rebuilds a run actually cost
     self.clients_seen = []  # what each page said it draws with
     self._browser_drawing = None  # made on the loop `start` runs on
+    # Motions sent to the pages and not yet played, by id, with the pages still playing each.
+    self._motions = {}
+    self._motion_count = 0
 
     # Every resource this viewer listens to, with the callback it gave, so `stop` can take it back.
     # By identity: a tip compares by value and is not hashable.
@@ -831,6 +925,7 @@ class Viewer3D:
 
     The ports are free for the next viewer, and no change is handed to a loop that is gone.
     """
+    self._release_motions()
     self._unsubscribe(self.root)
     self.root.deregister_did_assign_resource_callback(self._on_assign)
     self.root.deregister_did_unassign_resource_callback(self._on_unassign)

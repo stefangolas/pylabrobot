@@ -4,7 +4,7 @@
 import * as THREE from "three";
 
 import { placeEdges, showEdges } from "./boxes.js";
-import { LIQUID, MOVING_PARTS, VESSEL_EMPTY } from "./constants.js";
+import { DEG, LIQUID, MOVING_PARTS, VESSEL_EMPTY } from "./constants.js";
 import {
   hiddenNames,
   isVisible,
@@ -110,27 +110,72 @@ export function updateArms(delta) {
       reduce || !glideSeconds
         ? arm.targetX
         : arm.currentX + (arm.targetX - arm.currentX) * Math.min(1, delta / glideSeconds);
-    const local = new THREE.Matrix4().makeTranslation(arm.currentX, arm.local[1], arm.local[2]);
-    arm.group.matrix.multiplyMatrices(arm.parentMatrix, local);
-    arm.group.matrixWorldNeedsUpdate = true;
-
-    // Keep the scene model in step with what is drawn. Everything else reads position from here -
-    // the info panel, the selection box, the coordinate tool - so moving only the group would
-    // leave all of them quoting where the arm used to be.
-    mirrorPlacement(arm.index, arm.currentX, arm.group.matrix);
-    announce({ kind: "glide", index: arm.index });
-    // What the arm itself is drawn from. Its frame and outline ride the group and have moved
-    // already, but everything else the arm owns is a separate object with a baked matrix - its
-    // declared model above all, which hangs off the view rather than off the group - and the line
-    // below deliberately skips the arm while it works out the subtree beneath it. Without this a
-    // part drawn from a file stays where it was loaded while the arm travels out from under it,
-    // which is what a model-drawn X-arm did: the reference line moved and the geometry did not.
-    redraw([arm.index]);
-    // Whatever rides the arm moves with it. Its own matrix is already set from the group, so only
-    // what is beneath it needs working out.
-    refreshSubtree(arm.index, true);
+    placeArm(arm);
   }
   return moved;
+}
+
+// Draw an arm at its `currentX`, and everything it carries with it.
+function placeArm(arm) {
+  const local = new THREE.Matrix4().makeTranslation(arm.currentX, arm.local[1], arm.local[2]);
+  arm.group.matrix.multiplyMatrices(arm.parentMatrix, local);
+  arm.group.matrixWorldNeedsUpdate = true;
+
+  // Keep the scene model in step with what is drawn. Everything else reads position from here -
+  // the info panel, the selection box, the coordinate tool - so moving only the group would
+  // leave all of them quoting where the arm used to be.
+  mirrorPlacement(arm.index, arm.currentX, arm.group.matrix);
+  announce({ kind: "glide", index: arm.index });
+  // What the arm itself is drawn from. Its frame and outline ride the group and have moved
+  // already, but everything else the arm owns is a separate object with a baked matrix - its
+  // declared model above all, which hangs off the view rather than off the group - and the line
+  // below deliberately skips the arm while it works out the subtree beneath it. Without this a
+  // part drawn from a file stays where it was loaded while the arm travels out from under it,
+  // which is what a model-drawn X-arm did: the reference line moved and the geometry did not.
+  redraw([arm.index]);
+  // Whatever rides the arm moves with it. Its own matrix is already set from the group, so only
+  // what is beneath it needs working out.
+  refreshSubtree(arm.index, true);
+}
+
+const AXES = ["x", "y", "z"];
+
+/**
+ * Where a resource is drawn along one axis, relative to its parent, in mm.
+ *
+ * @param {number} index
+ * @param {number} axis 0, 1 or 2 for x, y or z
+ */
+export function readAxis(index, axis) {
+  const arm = axis === 0 ? arms.find((a) => a.index === index) : undefined;
+  return arm ? arm.currentX : world.local[index * 6 + axis];
+}
+
+/**
+ * Draw a resource at `value` along one axis, and everything it carries with it. What a motion
+ * moves the drives through: an arm travels in its own group, anything else by its transform.
+ *
+ * @param {number} index
+ * @param {number} axis 0, 1 or 2 for x, y or z
+ * @param {number} value in mm, relative to its parent
+ */
+export function setAxis(index, axis, value) {
+  const arm = axis === 0 ? arms.find((a) => a.index === index) : undefined;
+  if (arm) {
+    arm.currentX = value;
+    arm.targetX = value;
+    placeArm(arm);
+    return;
+  }
+  // A motion is where this resource is drawn from now on; an ease toward an older target is over.
+  glides.delete(index);
+  const o = index * 6;
+  const location = { x: world.local[o], y: world.local[o + 1], z: world.local[o + 2] };
+  location[AXES[axis]] = value;
+  if (setLocal(index, location)) {
+    refreshSubtree(index);
+    announce({ kind: "glide", index });
+  }
 }
 
 // What each gliding resource is easing toward, by index. A second move replaces the first: the
@@ -354,4 +399,33 @@ export function applyMoves(moves) {
   redraw([...touched]);
   refreshHalos();
   announce({ kind: "moves", rowsUnder });
+}
+
+/**
+ * Hand a resource to a new holder where it stands: a tip taken onto a shaft at the bottom of a
+ * pick-up, or left in its spot at the bottom of a drop. Drawn now, as the device does it; the model
+ * records the same change once the command has run, and that `moves` message then finds it done.
+ *
+ * @param {string} name
+ * @param {string | null} parentName the new holder, or null to leave it standing where it is
+ */
+export function reattach(name, parentName) {
+  const index = world.indexOfName.get(name);
+  if (index === undefined) return;
+  const parent = parentName === null ? -1 : (world.indexOfName.get(parentName) ?? -1);
+  if (parent === world.parentOf[index]) return;
+  const local = parent >= 0 ? world.matrices[parent].clone().invert() : new THREE.Matrix4();
+  local.multiply(world.matrices[index]);
+  const position = new THREE.Vector3();
+  const turn = new THREE.Quaternion();
+  local.decompose(position, turn, new THREE.Vector3());
+  const euler = new THREE.Euler().setFromQuaternion(turn, "XYZ");
+  applyMoves([
+    {
+      name,
+      parent: parent >= 0 ? world.names[parent] : null,
+      location: { x: position.x, y: position.y, z: position.z },
+      rotation: { x: euler.x / DEG, y: euler.y / DEG, z: euler.z / DEG },
+    },
+  ]);
 }
