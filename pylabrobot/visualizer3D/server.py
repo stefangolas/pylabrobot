@@ -654,9 +654,13 @@ class Viewer3D:
     # page first: a motion starts from where the page has everything.
     await asyncio.sleep(0)
     # Except where this very command has already been written: the iSWAP records a move's target as
-    # it sends it. Sent now, that would put the part at the end of the move before it is played, so
-    # it is held until the pages have played the move there. Taken before anything else can flush.
-    moving = _moved_names(request)
+    # it sends it, and so does a channel packing (`recorded_first`). Sent now, that would put the
+    # part at the end of the move before it is played, so it is held until the pages have played the
+    # move there. Taken before anything else can flush. Only for those: most commands write the
+    # model once they have run, so what is pending is the last command's result, and holding that
+    # back would send it after this one's move - drawn back where it was, until the model's own
+    # move puts it right.
+    moving = _moved_names(request) if request.get("recorded_first") else set()
     held = {name: self._pending.pop(name) for name in list(self._pending) if name in moving}
     # A change of shape - a tip taken onto a shaft - waits out its debounce, and holds the
     # positions back with it; the command that caused it is over, so it goes now.

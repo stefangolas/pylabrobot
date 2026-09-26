@@ -341,6 +341,20 @@ def _move_y(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str, 
   return request
 
 
+def _free_y_range(frames: _Frames, command: str) -> Dict[str, Any]:
+  """`C0 FY`: the master packs the channels as far forward as they fit, each against the ones in
+  front of it - where the simulator puts them, and writes them before the command is sent."""
+  request = _request(frames, "move_y", command)
+  request["recorded_first"] = True
+  floor = frames.driver.configuration.left_arm_min_y_position
+  widths = [c.width for c in frames.pipettes.configuration.channels]
+  request["channels"] = [
+    _channel(frames, c, y=frames.channel_y(c, floor + sum(widths[c + 1 :])))
+    for c in range(len(frames.channels))
+  ]
+  return request
+
+
 def _move_z(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
   request = _request(frames, "move_z", command)
   zs = _as_list(params["zp"])
@@ -381,9 +395,13 @@ def _iswap_of(driver: Any) -> Optional[Any]:
 
 
 def _iswap_request(kind: str, command: str) -> Dict[str, Any]:
+  # The iSWAP writes a move's target into the model as it sends it (`elbow_move_to_y_position`,
+  # `rotate_to_angles`, `gripper_move_to_jaw_position`): what the model says of these parts before
+  # the move is played is already its end.
   return {
     "kind": kind,
     "command": command,
+    "recorded_first": True,
     "arm": None,
     "channels": [],
     "traverse": [],
@@ -561,6 +579,8 @@ def star_motion(
       return _move_y(frames, key, params)
     if key == "C0JZ":
       return _move_z(frames, key, params)
+    if key == "C0FY":
+      return _free_y_range(frames, key)
     if module == "X0" and command in ("XP", "SP"):
       return _move_x(frames, driver, command, params)
   except (KeyError, IndexError, ValueError, TypeError, RuntimeError):
