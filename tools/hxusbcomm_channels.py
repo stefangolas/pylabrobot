@@ -183,12 +183,46 @@ def fit(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
       2,
     ),
   }
+  # The ripple, taken as given: one Y cost per count of channels moving, by coordinate descent,
+  # each with a 95% profile interval. A line through them gives the stagger per extra channel.
+  counts_moving = sorted(set(moving.tolist()) - {0})
+
+  def by_count(cost: Dict[int, float]) -> np.ndarray:
+    return np.maximum(tx, tymax + np.array([cost.get(int(m), 0.0) for m in moving]))
+
+  cost = {m: c1 for m in counts_moving}
+  steps = np.arange(0.0, 1.61, 0.01)
+  for _ in range(3):
+    for m in counts_moving:
+      cost[m] = float(min(steps, key=lambda v: rss(base + [by_count({**cost, m: v})])))
+  best_rss = rss(base + [by_count(cost)])
+  sigma2 = best_rss / (n - K - len(base) - 1 - len(counts_moving))
+  ripple = {}
+  for m in counts_moving:
+    near = np.arange(max(0.0, cost[m] - 0.3), cost[m] + 0.305, 0.005)
+    inside = [v for v in near if rss(base + [by_count({**cost, m: v})]) - best_rss <= 3.84 * sigma2]
+    ripple[m] = {
+      "cost_s": cost[m],
+      "ci95": [min(inside), max(inside)],
+      "rows": int((moving == m).sum()),
+    }
+  if len(counts_moving) >= 2:
+    slope, intercept = np.polyfit(
+      [m - 1 for m in counts_moving], [cost[m] for m in counts_moving], 1
+    )
+    ripple["line"] = {"per_extra_channel_s": float(slope), "fixed_s": float(intercept)}
+    models["max(X, Y together + a cost per count of channels moving)"] = (
+      by_count(cost),
+      len(counts_moving),
+    )
+
   out = {
     "_": {
       "rows": n,
       "groups": K,
       "z_speed": tz_speed,
       **{f"moving_{k}": int(v) for k, v in collections.Counter(moving.tolist()).items()},
+      "ripple": ripple,
     }
   }
   for name, (T, grid_k) in models.items():

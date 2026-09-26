@@ -332,7 +332,19 @@ d = a[group] + b_v · volume time + b_m · mix time + b_z · Tz(stroke) + b_xy �
 - The one independent test uses held-out rows with 2–6 channels moving, fitted on the rest.
 - On 53 four-channel dispenses from one protocol, the flat 0.80 s overpredicts by 0.50 s (RMS 498 ms), while 0.12 s per extra channel misses by only −0.07 s (RMS 86 ms). This points to a stagger, but it comes from a single protocol.
 - The aspirate "few-channel" rows are 0.1 mm jitter, not moves.
-- **Verdict: suggestive, not confirmed.** A run that moves 1–4 channels in Y inside otherwise identical commands would settle it. Single-channel `C0 KY` jogs (overhead ≈65–75 ms beyond travel) are a different command and aren't used as evidence.
+- On this data alone the ripple is suggestive. A run that moves 1–4 channels in Y inside otherwise identical commands would test it independently. Single-channel `C0 KY` jogs (overhead ≈65–75 ms beyond travel) are a different command and aren't used as evidence.
+
+**The ripple's size, taken as given.** The ripple is known from the device (user; DOC to follow). Fitting one Y cost per count of channels moving (`C0 DS`, `ripple` in the tool's output; R² within 0.9883, RMS 42.5 ms, AIC −1,366,602, the best DS model):
+
+| Channels moving in Y | Y cost beyond travel (FIT) | 95% profile interval | Rows | Source of the rows |
+|---|---|---|---|---|
+| 4 (channels 1–4) | 0.300 s | 0.295–0.315 s | 71 | one protocol, 15 groups, 12 with still rows |
+| 7 | 0.690 s | 0.685–0.695 s | 5,533 | channel 8 idle |
+| 8 | 0.760 s | 0.755–0.760 s | 67,759 | — |
+
+- A line through the three gives **0.118 s per extra channel** with a fixed part of −0.05 s, i.e. about none.
+- The page model: channel *i* (in the order they move) starts 0.12 s after the one before it, and the command waits for the last to arrive.
+- The 7→8 step (0.07 s) is smaller than the line's slope. The order the firmware moves them in, and whether the stagger depends on distance, aren't resolved by these three counts.
 
 **Pure Z,** from DS→AS pairs with no X or Y change and no mixing (32,968 pairs):
 - Strokes span 12.9–57.9 mm in two clusters, 13 mm and 53–56 mm.
