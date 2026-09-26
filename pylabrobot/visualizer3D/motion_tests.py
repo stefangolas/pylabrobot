@@ -84,17 +84,46 @@ class DecoderTests(unittest.IsolatedAsyncioTestCase):
       self.assertEqual(len(stroke), 1, f"{kind}: {[r['kind'] for r in self.requests]}")
       self.assert_ends_where_the_model_is(stroke[0])
 
-  async def test_the_tips_that_change_hands_are_named(self):
+  async def test_the_tips_change_hands_where_the_model_then_has_them(self):
+    """Placed anywhere else, the tip jumps when the model's own move reaches the page."""
     spots = [self.rack.get_item(f"{row}2") for row in "AB"]
-    tips = [spot.tip.name for spot in spots]
+    tips = [spot.tip for spot in spots]
     await self.star.pipettes.pick_up_tips(spots)
     pick_up = next(r for r in self.requests if r["kind"] == "tip_pickup")
     shafts = [c.children[0].name for c in self.star.pipettes.resources[:2]]
-    self.assertEqual(pick_up["attach"], [{"name": t, "parent": s} for t, s in zip(tips, shafts)])
+    self.assertEqual(
+      [(a["name"], a["parent"]) for a in pick_up["attach"]],
+      [(t.name, s) for t, s in zip(tips, shafts)],
+    )
+    for handover, tip in zip(pick_up["attach"], tips):
+      self.assertEqual(tip.parent.name, handover["parent"])
+      for axis in "xyz":
+        self.assertAlmostEqual(handover["location"][axis], getattr(tip.location, axis), 6)
 
     await self.star.pipettes.drop_tips(spots)
     drop = next(r for r in self.requests if r["kind"] == "tip_drop")
-    self.assertEqual(drop["attach"], [{"name": t, "parent": s.name} for t, s in zip(tips, spots)])
+    self.assertEqual(
+      [(a["name"], a["parent"]) for a in drop["attach"]],
+      [(t.name, s.name) for t, s in zip(tips, spots)],
+    )
+    for handover, tip in zip(drop["attach"], tips):
+      for axis in "xyz":
+        self.assertAlmostEqual(handover["location"][axis], getattr(tip.location, axis), 6)
+
+  async def test_a_dropped_tip_is_let_go_of_down_in_its_spot(self):
+    """`DROP` heights are the stop disc's: taken as the tip's bottom, the channel stops a tip's
+    length short and lets go of it in the air above the rack."""
+    spot = self.rack.get_item("A4")
+    tip = spot.tip
+    await self.star.pipettes.pick_up_tips([spot])
+    channel, shaft = self.star.pipettes.resources[0], self.star.pipettes.resources[0].children[0]
+    carried = tip.get_absolute_location() - shaft.get_absolute_location()
+    await self.star.pipettes.drop_tips([spot])
+    stroke = [r for r in self.requests if r["kind"] == "tip_drop"][-1]["channels"][0]
+    # Where the tip is at the bottom of the stroke, and where the model then rests it.
+    bottom = shaft.get_absolute_location().z - (stroke["end"] - stroke["down"])
+    self.assertAlmostEqual(bottom + carried.z, tip.get_absolute_location().z, delta=0.5)
+    self.assertEqual(channel.location.z, stroke["end"])
 
   async def test_an_aspiration_dwells_as_long_as_its_volume_takes(self):
     await self.star.pipettes.pick_up_tips([self.rack.get_item("A3")])

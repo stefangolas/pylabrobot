@@ -115,7 +115,7 @@ export function mmPerPixel() {
 }
 
 export const VIEWS = {
-  iso: new THREE.Vector3(-0.7, -1, 0.85),
+  iso: new THREE.Vector3(-0.8, -1, 1.25),
   top: new THREE.Vector3(0, -0.001, 1),
   front: new THREE.Vector3(0, -1, 0.12),
 };
@@ -258,10 +258,10 @@ export function dolly(factor) {
   controls.update();
 }
 
-// A plan view is what a deck is read in, so that is where the viewer opens. `?view=iso` or
-// `?view=front` picks another, so a link can still point at a particular angle.
-export const startViewName = new URLSearchParams(location.search).get("view") ?? "top";
-export const startView = VIEWS[startViewName] ?? VIEWS.top;
+// The viewer opens looking down on the devices from the front left, where their motion reads.
+// `?view=top` or `?view=front` picks another, so a link can still point at a particular angle.
+export const startViewName = new URLSearchParams(location.search).get("view") ?? "iso";
+export const startView = VIEWS[startViewName] ?? VIEWS.iso;
 
 let sizedTo = { w: 0, h: 0 };
 

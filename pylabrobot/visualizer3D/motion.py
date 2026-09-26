@@ -29,7 +29,8 @@ is converted to the stop disc, with the overhang the channel has when the move i
 
 from typing import Any, Dict, List, Optional, Sequence
 
-from pylabrobot.resources.tip_rack import TipSpot
+from pylabrobot.resources.coordinate import Coordinate
+from pylabrobot.resources.tip_rack import TipSpot, resting_location
 
 # The driver states no X speed or acceleration; these are the threejs visualizer's, in mm/s and
 # mm/s^2.
@@ -39,6 +40,9 @@ X_ACCELERATION = 500.0
 # How close a command's position has to be to a tip spot's centre to be taken as that spot, in mm.
 SPOT_TOLERANCE = 1.0
 
+# `TipDropMethod.DROP`, as `C0 TR` sends it in `ti`.
+TIP_DROP = 1
+
 
 def _pipetting_arm(driver: Any) -> Optional[Any]:
   """The arm carrying the channels, or None when there is none or nothing models it yet."""
@@ -46,6 +50,10 @@ def _pipetting_arm(driver: Any) -> Optional[Any]:
   if arm is None or arm.resource is None or not arm.pipettes.resources:
     return None
   return arm
+
+
+def _xyz(coordinate: Any) -> Dict[str, float]:
+  return {"x": float(coordinate.x), "y": float(coordinate.y), "z": float(coordinate.z)}
 
 
 def _tenths(value: Any) -> float:
@@ -208,6 +216,29 @@ def _stroke(
   return request
 
 
+def _mounted_location(shaft: Any, tip: Any) -> Dict[str, float]:
+  """Where a tip sits on a shaft once picked up, as `TipMountingShaft` places it: its pick-up
+  location `fitting_depth` up the shaft's axis."""
+  grip = (tip.pick_up_location or tip.get_anchor("c", "c", "t")).rotated(tip.rotation)
+  return _xyz(
+    Coordinate(
+      shaft.get_size_x() / 2 - grip.x,
+      shaft.get_size_y() / 2 - grip.y,
+      tip.fitting_depth - grip.z,
+    )
+  )
+
+
+def _handover(tip: Any, parent: Any, location: Optional[Dict[str, float]]) -> Dict[str, Any]:
+  """A tip changing hands at the bottom of a stroke, placed where the model will place it."""
+  return {
+    "name": tip.name,
+    "parent": None if parent is None else parent.name,
+    "location": location,
+    "rotation": _xyz(tip.rotation),
+  }
+
+
 def _positions(params: Dict[str, Any], channel: int) -> Any:
   return _tenths(_as_list(params["xp"])[channel]), _tenths(_as_list(params["yp"])[channel])
 
@@ -229,19 +260,24 @@ def _tip_pickup(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[s
   for c in involved:
     spot, shaft = frames.spot_at(*_positions(params, c)), frames.shaft(c)
     if spot is not None and spot.tip is not None and shaft is not None:
-      request["attach"].append({"name": spot.tip.name, "parent": shaft.name})
+      request["attach"].append(_handover(spot.tip, shaft, _mounted_location(shaft, spot.tip)))
   return request
 
 
 def _tip_drop(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
   involved = _involved(_as_list(params["tm"]))
+  # With `DROP` the heights are the stop disc's, not the lowest point's (`_unchecked_fw_drop_tips`):
+  # the tip still on it hangs below them.
+  drop = int(params.get("ti", 0)) == TIP_DROP
   request = _stroke(
     frames,
     "tip_drop",
     command,
     params,
     traverse=_tenths(params["th"]),
-    down={c: frames.lowest_point_z(c, _tenths(params["tz"])) for c in involved},
+    down={
+      c: frames.lowest_point_z(c, _tenths(params["tz"]), 0.0 if drop else None) for c in involved
+    },
     # It comes away empty.
     end={c: frames.lowest_point_z(c, _tenths(params["te"]), 0.0) for c in involved},
   )
@@ -252,8 +288,10 @@ def _tip_drop(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str
     if shaft is None or shaft.tip is None:
       continue
     spot = frames.spot_at(*_positions(params, c))
-    parent = spot.name if spot is not None and spot.tip is None else None
-    request["attach"].append({"name": shaft.tip.name, "parent": parent})
+    if spot is not None and spot.tip is None:
+      request["attach"].append(_handover(shaft.tip, spot, _xyz(resting_location(spot, shaft.tip))))
+    else:
+      request["attach"].append(_handover(shaft.tip, None, None))
   return request
 
 
@@ -340,10 +378,6 @@ def _iswap_of(driver: Any) -> Optional[Any]:
     if iswap is not None and None not in (iswap.resource, iswap.link_1, iswap.gripper):
       return iswap
   return None
-
-
-def _xyz(coordinate: Any) -> Dict[str, float]:
-  return {"x": float(coordinate.x), "y": float(coordinate.y), "z": float(coordinate.z)}
 
 
 def _iswap_request(kind: str, command: str) -> Dict[str, Any]:

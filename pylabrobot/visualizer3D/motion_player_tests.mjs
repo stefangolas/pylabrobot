@@ -339,3 +339,19 @@ test("a lid is not put on a plate that has one, nor is a plate put on a plate", 
 test("a lid let go of on an empty site lands on the site", () => {
   assert.equal(siteUnder(lidAt(100), [site], LID), 1);
 });
+
+test("a tip is handed over at the place the model gives it", async () => {
+  const world = fakeWorld(start());
+  const deps = world.deps();
+  const placed = [];
+  deps.attach = (name, parent, where) => placed.push({ name, parent, where });
+  const location = { x: -0.6, y: -0.6, z: -87.1 };
+  const request = {
+    ...pickUp,
+    attach: [{ name: "tip", parent: "shaft0", location, rotation: { x: 0, y: 0, z: 0 } }],
+  };
+  await playOut(createPlayer(deps), request);
+  assert.deepEqual(placed, [
+    { name: "tip", parent: "shaft0", where: { location, rotation: { x: 0, y: 0, z: 0 } } },
+  ]);
+});

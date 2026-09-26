@@ -409,11 +409,24 @@ export function applyMoves(moves) {
  *
  * @param {string} name
  * @param {string | null} parentName the new holder, or null to leave it standing where it is
+ * @param {{location: any, rotation?: any}} [placed] where the new holder has it, relative to itself,
+ *   when the model says: a tip on a shaft sits at its fitting depth, not where the shaft met it
  */
-export function reattach(name, parentName) {
+export function reattach(name, parentName, placed) {
   const index = world.indexOfName.get(name);
   if (index === undefined) return;
   const parent = parentName === null ? -1 : (world.indexOfName.get(parentName) ?? -1);
+  if (placed && parent >= 0) {
+    applyMoves([
+      {
+        name,
+        parent: world.names[parent],
+        location: placed.location,
+        rotation: placed.rotation ?? { x: 0, y: 0, z: 0 },
+      },
+    ]);
+    return;
+  }
   if (parent === world.parentOf[index]) return;
   const local = parent >= 0 ? world.matrices[parent].clone().invert() : new THREE.Matrix4();
   local.multiply(world.matrices[index]);

@@ -44,7 +44,8 @@ export function turnedLocation(location, from, to, pivot) {
  * @param {(index: number, axis: number) => number} deps.readAxis  where a resource is, per axis
  * @param {(index: number, axis: number, value: number) => void} deps.setAxis  put it somewhere
  * @param {(name: string) => number | undefined} deps.indexOf  a resource by name
- * @param {(name: string, parent: string | null) => void} deps.attach  hand a tip to a new holder
+ * @param {(name: string, parent: string | null, placed?: any) => void} deps.attach  hand a tip
+ *   to a new holder, at `placed` ({location, rotation}) when given, else where it stands
  * @param {() => boolean} deps.skipping  whether to jump to the end rather than play
  * @param {(index: number, degrees: number, pivot: any) => void} [deps.turnTo]  turn about a pivot
  * @param {(gripper: string, point: any) => void} [deps.grip]  take hold of what is at `point`
@@ -157,7 +158,9 @@ export function createPlayer({
         if (!handovers.length && !(request.dwell > 0)) return [];
         return [
           async () => {
-            for (const { name, parent } of handovers) attach(name, parent ?? null);
+            for (const { name, parent, location, rotation } of handovers) {
+              attach(name, parent ?? null, location ? { location, rotation } : undefined);
+            }
             await pause(request.dwell);
           },
         ];

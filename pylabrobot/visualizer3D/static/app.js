@@ -130,11 +130,16 @@ const deviceTools = initDeviceTools({
   },
 });
 
+// What stands in the scene: the root's own box is the room around it - a facility is metres of
+// empty floor - so framing it puts everything small and to one side. A root with nothing on it is
+// what there is to frame.
 function sceneBounds() {
   const box = new THREE.Box3();
   for (let i = 0; i < world.names.length; i++) {
-    if (world.parentOf[i] >= 0) continue;
-    box.union(worldBox(i));
+    const parent = world.parentOf[i];
+    const onRoot = parent >= 0 && world.parentOf[parent] < 0;
+    const bareRoot = parent < 0 && world.childrenOf[i].length === 0;
+    if (onRoot || bareRoot) box.union(worldBox(i));
   }
   if (box.isEmpty()) box.set(new THREE.Vector3(0, 0, 0), new THREE.Vector3(1000, 500, 300));
   return box;
