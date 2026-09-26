@@ -15,7 +15,14 @@ the pace of the motion, `speed` times as fast as the drives. It reports:
   nothing standing on what it names;
 - snaps: anything moving outside a motion at all. Everything that moves should be acted out, so a
   snap is the model putting something somewhere with no motion to draw the way: a command the viewer
-  does not read, or a motion that ends somewhere else than the model does.
+  does not read, or a motion that ends somewhere else than the model does;
+- arrivals: a model update that finds the page anywhere but where it says - checked on every update,
+  for every position and rotation in it, whether or not anything visibly moved;
+- and, given the model, every resource at the end where the model has it, but what the page carried
+  in a gripper itself.
+
+The server says which commands it does not act out, so a snap is put down to the command behind it,
+and `undecoded` lists the ones a scenario went through.
 """
 
 import asyncio
@@ -44,6 +51,10 @@ class Report:
   jumps: List[Dict[str, Any]] = field(default_factory=list)
   strays: List[Dict[str, Any]] = field(default_factory=list)
   snaps: List[Dict[str, Any]] = field(default_factory=list)
+  arrivals: List[Dict[str, Any]] = field(default_factory=list)
+  undecoded: List[str] = field(default_factory=list)
+  carried: List[str] = field(default_factory=list)
+  final: Dict[str, List[float]] = field(default_factory=dict)
   trace: str = ""
 
 
@@ -127,6 +138,10 @@ async def watched(
       report.jumps = result["jumps"]
       report.strays = result["strays"]
       report.snaps = result["snaps"]
+      report.arrivals = result["arrivals"]
+      report.undecoded = result["undecoded"]
+      report.carried = result["carried"]
+      report.final = result["final"]
 
 
 def _describe(kind: str, found: List[Dict[str, Any]]) -> List[str]:
@@ -135,6 +150,19 @@ def _describe(kind: str, found: List[Dict[str, Any]]) -> List[str]:
     first.setdefault(item["name"], item)
   lines = [f"{len(found)} {kind} in {len(first)} resources:"]
   for item in list(first.values())[:8]:
+    if "page" in item:
+      off = f"{item['mm']} mm" if "mm" in item else f"{item['degrees']} degrees"
+      lines.append(
+        f"  {item['name']} [{item['category']}]: {item['kind']} after {item['after']} says "
+        f"{item['model']}, page had {item['page']} ({off})"
+      )
+      continue
+    if "model_at" in item:
+      lines.append(
+        f"  {item['name']} [{item['category']}]: ends at {item['page_at']} on the page, "
+        f"{item['model_at']} in the model ({item['mm']} mm)"
+      )
+      continue
     limit = f" (allowed {item['allowed']})" if "allowed" in item else ""
     lines.append(
       f"  {item['name']} [{item['category']}]: {item['mm']} mm{limit} at t={item['t']} s, "
@@ -143,17 +171,56 @@ def _describe(kind: str, found: List[Dict[str, Any]]) -> List[str]:
   return lines
 
 
+def _against_model(report: Report, model: Any, tolerance: float) -> List[Dict[str, Any]]:
+  """Every resource the page drew, where it ends against where the model has it.
+
+  What the page carried in a gripper is left out, with what stands on it: the model never moves it.
+  """
+  carried = set(report.carried)
+  found = []
+  for resource in [model, *model.get_all_children()]:
+    at = report.final.get(resource.name)
+    if at is None:
+      continue
+    chain, skip = resource, False
+    while chain is not None:
+      if chain.name in carried:
+        skip = True
+        break
+      chain = chain.parent
+    if skip:
+      continue
+    where = resource.get_absolute_location()
+    d = max(abs(at[0] - where.x), abs(at[1] - where.y), abs(at[2] - where.z))
+    if d > tolerance:
+      found.append(
+        {
+          "name": resource.name,
+          "category": resource.category,
+          "mm": round(d, 2),
+          "page_at": at,
+          "model_at": [round(where.x, 2), round(where.y, 2), round(where.z, 2)],
+        }
+      )
+  return found
+
+
 def assert_smooth(
   report: Report,
   ignore: Optional[List[str]] = None,
   allow_snaps: Optional[List[str]] = None,
+  model: Any = None,
+  tolerance: float = 0.25,
 ) -> None:
-  """Raise if the page saw a jump, a stray or a snap, naming the first few and what came before.
+  """Raise if the page saw a jump, a stray, a snap or an arrival somewhere else, or, given the
+  model, ended anywhere but where the model has things - naming the first few of each.
 
   Args:
     report: what `watched` reported.
     ignore: categories to leave out of every check.
     allow_snaps: categories that may move outside a motion: a part the viewer does not act out yet.
+    model: the root the viewer was given, to compare where everything ends.
+    tolerance: how far from the model a resource may end, in mm.
   """
   skipped = set(ignore or [])
   snapping = skipped | set(allow_snaps or [])
@@ -163,8 +230,19 @@ def assert_smooth(
     ("jumps", [j for j in report.jumps if j["category"] not in skipped]),
     ("strays", [j for j in report.strays if j["category"] not in skipped]),
     ("snaps", [j for j in report.snaps if j["category"] not in snapping]),
+    ("arrivals elsewhere", [j for j in report.arrivals if j["category"] not in snapping]),
   ]
+  if model is not None:
+    found.append(
+      (
+        "resources ending away from the model",
+        [j for j in _against_model(report, model, tolerance) if j["category"] not in skipped],
+      )
+    )
   lines = [line for kind, items in found if items for line in _describe(kind, items)]
   if lines:
-    header = f"over {report.samples} samples and {report.motions} motions:"
+    header = f"over {report.samples} samples and {report.motions} motions"
+    if report.undecoded:
+      header += f", through commands not acted out: {', '.join(report.undecoded)}"
+    header += ":"
     raise AssertionError("\n".join([header, *lines]))

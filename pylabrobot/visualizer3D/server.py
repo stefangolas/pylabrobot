@@ -649,6 +649,10 @@ class Viewer3D:
       return
     request = star_motion(driver, module, command, params)
     if request is None:
+      # Said, so whatever it moves can be put down to it: a command that moves something and is not
+      # read here reaches the page as a jump. A read moves nothing and is not worth a message.
+      if command[0] not in ("R", "Q"):
+        await self._broadcast("command", {"command": module + command})
       return
     # A change is handed to the loop to be queued, so let what the last command changed reach the
     # page first: a motion starts from where the page has everything.

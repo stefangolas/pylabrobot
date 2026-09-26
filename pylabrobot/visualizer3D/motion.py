@@ -109,24 +109,38 @@ class _Frames:
   def planned_ys(self, targets: Dict[int, float]) -> Dict[int, float]:
     """Every channel's Y once the named ones are at their targets, on one rail.
 
-    The others are pushed only as far as the spacing asks, the rule the device goes by. Channel 0
-    is at the back, so Y falls as the channel number rises.
+    As `Pipettes._plan_y_positions(make_space=True)` plans it - the plan the simulator records a
+    tip command with - from where the model has the channels, read as the device reports them, to a
+    tenth. Channel 0 is at the back, so Y falls as the channel number rises. Behind the backmost
+    named channel and in front of the frontmost, the others are pushed only as far as the spacing
+    asks; between two named channels, each unnamed one stands at the spacing in front of the one
+    behind it.
     """
-    ys = [self.current_y(c) for c in range(len(self.channels))]
-    for channel, y in targets.items():
-      ys[channel] = y
+    if not targets:
+      return {}
+    n = len(self.channels)
 
     def gap(i: int, j: int) -> float:
-      return float(self.pipettes._min_pair_spacing(i, j))
+      return float(self.pipettes._min_spacing_between(i, j))
 
-    named = sorted(targets)
-    if not named:
-      return {}
-    for c in range(named[-1] + 1, len(ys)):  # in front of the frontmost named channel
-      ys[c] = min(ys[c], ys[c - 1] - gap(c - 1, c))
-    for c in range(named[0] - 1, -1, -1):  # behind the backmost
-      ys[c] = max(ys[c], ys[c + 1] + gap(c, c + 1))
-    return {c: round(y, 2) for c, y in enumerate(ys)}
+    positions = [round(self.current_y(c), 1) for c in range(n)]
+    positions[-1] = max(positions[-1], self.driver.configuration.left_arm_min_y_position)
+    for c in range(n - 2, -1, -1):
+      if positions[c] - positions[c + 1] < gap(c, c + 1):
+        positions[c] = positions[c + 1] + gap(c, c + 1)
+    ys = dict(enumerate(positions))
+    ys.update(targets)
+    back, front = min(targets), max(targets)
+    for c in range(back, 0, -1):
+      if ys[c - 1] - ys[c] < gap(c - 1, c):
+        ys[c - 1] = ys[c] + gap(c - 1, c)
+    for c in range(back + 1, front):
+      if c not in targets:
+        ys[c] = ys[c - 1] - gap(c - 1, c)
+    for c in range(front, n - 1):
+      if ys[c] - ys[c + 1] < gap(c, c + 1):
+        ys[c + 1] = ys[c] - gap(c, c + 1)
+    return {c: round(y, 2) for c, y in ys.items()}
 
   def shaft(self, channel: int) -> Optional[Any]:
     return next(

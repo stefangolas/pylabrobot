@@ -218,6 +218,7 @@ const player = createPlayer({
     if (taken === undefined) return;
     reattach(names[taken], gripper);
     held.set(gripper, names[taken]);
+    carried.add(names[taken]);
   },
   release: (gripper) => {
     const name = held.get(gripper);
@@ -268,6 +269,18 @@ const active = new Map();
 const jumps = [];
 const strays = [];
 const snaps = [];
+// A model update that finds the page somewhere else than it says: the motion ended short, long or
+// beside where the model has the resource.
+const arrivals = [];
+// Commands the viewer does not act out, as they went by.
+const undecoded = new Set();
+// What the page moved on its own - labware taken by a gripper - and so is expected to differ from
+// the model, which never moves it.
+const carried = new Set();
+// How far a model update may disagree with the page, in mm and degrees: state travels rounded to a
+// tenth, and a motion's targets to a hundredth.
+const ARRIVAL_MM = config.arrivalMm ?? 0.11;
+const ARRIVAL_DEG = config.arrivalDeg ?? 0.11;
 let samples = 0;
 let motions = 0;
 
@@ -338,6 +351,37 @@ setInterval(() => {
 
 // -- the connection -----------------------------------------------------------------------------
 
+const angleOff = (a, b) => Math.abs(((((a - b) % 360) + 540) % 360) - 180);
+
+// Where a model update puts things, against where the page already has them.
+function checkArrivals(kind, data) {
+  if (!names.length) return;
+  const entries =
+    kind === "moves"
+      ? data.moves
+      : Object.keys(data.of ?? {})
+          .map((name) => ({ name, rotation: data.states[data.of[name]]?.rotation ?? { x: 0, y: 0, z: 0 } }))
+          .concat(Object.entries(data.locations ?? {}).map(([name, location]) => ({ name, location })));
+  for (const entry of entries) {
+    const i = indexOfName.get(entry.name);
+    if (i === undefined || carried.has(entry.name)) continue;
+    const o = i * 6;
+    const found = { name: entry.name, category: categoryOf(i), t: round(motionTime), kind, after: lastEvent };
+    if (entry.location) {
+      const d = Math.hypot(local[o] - entry.location.x, local[o + 1] - entry.location.y, local[o + 2] - entry.location.z);
+      if (d > ARRIVAL_MM && arrivals.length < KEEP) {
+        arrivals.push({ ...found, mm: round(d), page: [...local.slice(o, o + 3)].map(round), model: [entry.location.x, entry.location.y, entry.location.z].map(round) });
+      }
+    }
+    if (entry.rotation) {
+      const off = Math.max(...["x", "y", "z"].map((k, j) => angleOff(local[o + 3 + j], entry.rotation[k] ?? 0)));
+      if (off > ARRIVAL_DEG && arrivals.length < KEEP) {
+        arrivals.push({ ...found, degrees: round(off), page: [...local.slice(o + 3, o + 6)].map(round), model: ["x", "y", "z"].map((k) => round(entry.rotation[k] ?? 0)) });
+      }
+    }
+  }
+}
+
 // `trace`: a resource name whose every change is written to stderr, to find where a jump comes from.
 function trace(kind, detail) {
   if (!config.trace) return;
@@ -361,7 +405,13 @@ socket.onmessage = async (message) => {
     if (first) process.stdout.write("ready\n");
     return;
   }
+  if (kind === "command") {
+    undecoded.add(data.command);
+    lastEvent = `command ${data.command} (not acted out)`;
+    return;
+  }
   if (kind === "state" || kind === "moves") {
+    checkArrivals(kind, data);
     // Sampled on either side, so whatever it moves is put down to it.
     if (names.length) sample();
     if (config.trace) {
@@ -393,6 +443,22 @@ socket.onmessage = async (message) => {
 process.stdin.resume();
 process.stdin.on("end", () => {
   sample();
-  writeFileSync(config.report, JSON.stringify({ samples, motions, motionTime, jumps, strays, snaps }));
+  const matrices = names.length ? worldMatrices() : [];
+  const final = Object.fromEntries(names.map((name, i) => [name, [matrices[i][12], matrices[i][13], matrices[i][14]].map(round)]));
+  writeFileSync(
+    config.report,
+    JSON.stringify({
+      samples,
+      motions,
+      motionTime,
+      jumps,
+      strays,
+      snaps,
+      arrivals,
+      undecoded: [...undecoded].sort(),
+      carried: [...carried],
+      final,
+    }),
+  );
   process.exit(0);
 });
