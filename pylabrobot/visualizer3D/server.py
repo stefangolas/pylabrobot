@@ -445,11 +445,13 @@ class Viewer3D:
     }
     return self._scene_payload
 
-  def _moves(self) -> Optional[List[Dict[str, Any]]]:
+  def _moves(self, hold: FrozenSet[str] = frozenset()) -> Optional[List[Dict[str, Any]]]:
     """Moves since the scene was built, applied to the kept scene too, or None if a name changed.
 
     A move is a resource whose parent or local transform differs from the kept scene, as `{name,
-    parent, location, rotation}`. A name appearing or disappearing needs a rebuild.
+    parent, location, rotation}`. A name appearing or disappearing needs a rebuild. A resource in
+    `hold` that has only moved, not changed parent, is left out and left unrecorded: a motion about
+    to be played takes it there, and the model has it there already.
     """
     scene = self._scene
     if scene is None or frozenset(all_names(self.root)) != self._known_names:
@@ -469,10 +471,10 @@ class Viewer3D:
         float(rotation.z),
       ]
       parent_index = -1 if parent is None else self._index_of[parent]
-      if (
-        parent_index != scene.parent_of_instance[index]
-        or local != scene.transforms[6 * index : 6 * index + 6]
-      ):
+      reparented = parent_index != scene.parent_of_instance[index]
+      if not reparented and resource.name in hold:
+        pass
+      elif reparented or local != scene.transforms[6 * index : 6 * index + 6]:
         scene.parent_of_instance[index] = parent_index
         scene.transforms[6 * index : 6 * index + 6] = local
         moves.append(
@@ -500,7 +502,7 @@ class Viewer3D:
     self._published = {name: _signature(cleaned, key) for name, (cleaned, key) in states.items()}
     await self._broadcast("state", pack_state(states, self._epoch))
 
-  async def _flush_scene(self) -> None:
+  async def _flush_scene(self, hold: FrozenSet[str] = frozenset()) -> None:
     self._scene_timer = None
     if not self._clients:
       # Nobody to tell. The kept scene is dropped, so the next client is greeted with one built
@@ -508,7 +510,7 @@ class Viewer3D:
       self._scene = None
       self._scene_payload = None
       return
-    moves = self._moves()
+    moves = self._moves(hold)
     if moves is None:
       self.rebuilds += 1
       await self._send_scene_to_all()
@@ -670,7 +672,9 @@ class Viewer3D:
     # positions back with it; the command that caused it is over, so it goes now.
     if self._scene_timer is not None:
       self._scene_timer.cancel()
-      await self._flush_scene()
+      # What this command already wrote is held back here too: a change of shape carries every
+      # position that differs from the kept scene, the move's own target among them.
+      await self._flush_scene(frozenset(moving))
     if self._pending:
       await self._flush()
     self._motion_count += 1

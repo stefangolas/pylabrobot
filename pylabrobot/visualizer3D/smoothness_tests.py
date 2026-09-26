@@ -11,6 +11,7 @@ import asyncio
 import unittest
 from typing import Any, Awaitable, Callable, Tuple
 
+from pylabrobot.hamilton.star.driver.features.iswap_transport import iSWAPTransport
 from pylabrobot.resources.coordinate import Coordinate
 from pylabrobot.resources.corning.plates import cor_96_wellplate_360uL_Fb_lid
 from pylabrobot.resources.plate import Plate
@@ -193,6 +194,39 @@ class SmoothnessTests(unittest.IsolatedAsyncioTestCase):
 
     report = await self.smooth(scenario, lid=True)
     self.assertIn("source_1", report.carried)
+
+  async def test_the_iswap_transport_moves_a_lidded_plate_and_its_lid(self):
+    async def scenario(star: Any) -> None:
+      deck = star.deck
+      plate = deck.get_resource("source_1")
+      lid = plate.lid
+      start, other = plate.parent, deck.get_resource("destination_carrier").children[1]
+      transport = iSWAPTransport(star.iswap)
+      await star.iswap.make_space()
+      await transport.move_resource(plate, other, pickup_direction="front")
+      await transport.move_resource(lid, start, pickup_direction="front")
+      await transport.move_resource(lid, plate, pickup_direction="front")
+      await transport.move_resource(plate, start, pickup_direction="front")
+      self.assertIs(plate.parent, start)
+      self.assertIs(plate.lid, lid)
+
+    # The model hangs what is held on the gripper, so the page carries nothing the model does not.
+    report = await self.smooth(scenario, lid=True)
+    self.assertEqual(report.carried, [])
+
+  async def test_the_iswap_transport_turns_a_plate_a_quarter_turn(self):
+    async def scenario(star: Any) -> None:
+      deck = star.deck
+      deck.get_resource("destination_1").unassign()
+      plate = deck.get_resource("source_1")
+      transport = iSWAPTransport(star.iswap)
+      await star.iswap.make_space()
+      await transport.move_resource(
+        plate, deck.get_resource("destination_carrier").children[1], "back", "left"
+      )
+      self.assertAlmostEqual(plate.get_absolute_rotation().z % 360, 90.0)
+
+    await self.smooth(scenario)
 
   # -- the watching catches what it is for -------------------------------------------------------
 

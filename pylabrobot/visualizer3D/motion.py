@@ -371,6 +371,18 @@ def _free_y_range(frames: _Frames, command: str) -> Dict[str, Any]:
   return request
 
 
+def _channels_up(frames: _Frames, command: str) -> Dict[str, Any]:
+  """`C0 ZA`: every channel up to the top of its Z travel, where `probe_z_max` leaves them - and
+  where the simulator writes them before the command is sent."""
+  request = _request(frames, "move_z", command)
+  request["recorded_first"] = True
+  ceiling = frames.pipettes.configuration.z_range[1]
+  request["channels"] = [
+    _channel(frames, c, end=frames.channel_z(c, ceiling)) for c in range(len(frames.channels))
+  ]
+  return request
+
+
 def _move_z(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
   request = _request(frames, "move_z", command)
   zs = _as_list(params["zp"])
@@ -760,6 +772,8 @@ def star_motion(
       return _move_z(frames, key, params)
     if key == "C0FY":
       return _free_y_range(frames, key)
+    if key == "C0ZA":
+      return _channels_up(frames, key)
     if module == "X0" and command in ("XP", "SP"):
       return _move_x(frames, driver, command, params)
   except (KeyError, IndexError, ValueError, TypeError, RuntimeError):

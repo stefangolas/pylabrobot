@@ -1097,6 +1097,14 @@ class SimulatedISWAP(_Simulated, iSWAP):
           return {"rg": [home, home]}, "the gripper's home and parking width"
         width = c.gripper_mm_to_increments(gripper.jaw_width)
         return {"rg": [width, width]}, "how far the model has the jaws open"
+    if (module, command) == ("C0", "GC"):
+      # Closing onto what is there, the jaws stop on it: at the width it was said to be, which is
+      # what a simulated arm has of it. The read after the close then finds them there.
+      gripper = self.gripper
+      if gripper is not None:
+        low, high = gripper.jaw_range
+        self.gripper_update_width(min(max(int(kwargs["gb"]) / 10, low), high))
+      return None
     if (module, command) == ("C0", "QP"):
       # Whether the arm holds something is whether the model has anything hanging off the gripper
       # that is not part of the gripper: its body and its two fingers are its own.

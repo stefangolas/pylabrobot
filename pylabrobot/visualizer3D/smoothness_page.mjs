@@ -77,17 +77,21 @@ function multiply(m, n) {
 
 function invertRigid(m) {
   // A rotation and a translation: the inverse is the transposed rotation, and the translation
-  // taken back through it.
-  const r = [m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10]];
+  // taken back through it. Column-major, as three's: m[0..2] is the rotation's first column, so
+  // the transpose's first column is the rotation's first row, m[0], m[4], m[8].
   const t = [m[12], m[13], m[14]];
+  const row = (i) => [m[i], m[i + 4], m[i + 8]];
+  const [r0, r1, r2] = [row(0), row(1), row(2)];
+  const dot = (a) => a[0] * t[0] + a[1] * t[1] + a[2] * t[2];
+  // Columns of the transpose: the rotation's rows.
+  const c0 = [m[0], m[1], m[2]];
+  const c1 = [m[4], m[5], m[6]];
+  const c2 = [m[8], m[9], m[10]];
   return [
-    r[0], r[3], r[6], 0,
-    r[1], r[4], r[7], 0,
-    r[2], r[5], r[8], 0,
-    -(r[0] * t[0] + r[1] * t[1] + r[2] * t[2]),
-    -(r[3] * t[0] + r[4] * t[1] + r[5] * t[2]),
-    -(r[6] * t[0] + r[7] * t[1] + r[8] * t[2]),
-    1,
+    r0[0], r0[1], r0[2], 0,
+    r1[0], r1[1], r1[2], 0,
+    r2[0], r2[1], r2[2], 0,
+    -dot(c0), -dot(c1), -dot(c2), 1,
   ];
 }
 
@@ -297,8 +301,8 @@ const handovers = [];
 const arrivals = [];
 // Commands the viewer does not act out, as they went by.
 const undecoded = new Set();
-// What the page moved on its own - labware taken by a gripper - and so is expected to differ from
-// the model, which never moves it.
+// What the page moved on its own - labware taken by a gripper - and so may differ from the model at
+// the end, if the model never moves it. Once the model places it, it is the model's again.
 const carried = new Set();
 // How far a model update may disagree with the page, in mm and degrees: state travels rounded to a
 // tenth, and a motion's targets to a hundredth.
@@ -387,7 +391,10 @@ function checkArrivals(kind, data) {
           .concat(Object.entries(data.locations ?? {}).map(([name, location]) => ({ name, location })));
   for (const entry of entries) {
     const i = indexOfName.get(entry.name);
-    if (i === undefined || carried.has(entry.name)) continue;
+    if (i === undefined) continue;
+    // Something the page carried that the model now places too: from here the model has it, and
+    // where the page had it is held to where the model says.
+    carried.delete(entry.name);
     const o = i * 6;
     const found = { name: entry.name, category: categoryOf(i), t: round(motionTime), kind, after: lastEvent };
     if (entry.location) {
