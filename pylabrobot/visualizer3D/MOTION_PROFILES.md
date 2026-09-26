@@ -94,10 +94,10 @@ Profile: **single axis (Y)**. Each channel to `yp` (FW), at the Y drive speed (s
 Profile: **single axis (Z)**. Each channel's lowest point to `zp` (FW), at the Z drive speed and acceleration (section 0).
 
 ### `C0 FY` — free the Y range (the iSWAP's `make_space`)
-Profile: **single axis (Y), targets written first**. The master packs the channels as far forward as they fit, each against the one in front. The target isn't in the command: the simulator writes it before the command is sent (`recorded_first`), and the page plays to it (SIM).
+Profile: **single axis (Y), commanded target from the model**. The master packs the channels as far forward as they fit, each against the one in front. The target isn't in the command. The v1 driver reads the channels' Y back after the command, in a `finally` (PLR, `iSWAP.make_space`). The simulator writes the packed positions ahead, because its reads answer from the model (SIM, `_unchecked_fw_position_components_for_free_y_range`), and the page plays to them (`recorded_first`: state held back until played). This is the commanded outcome, not a confirmed one: a failure would be reconciled only by the read-back (planned).
 
 ### `C0 ZA` — all channels to Z safety
-Profile: **single axis (Z), targets written first**. Every channel up to the top of its Z travel, `Pipettes.configuration.z_range[1]`, where `probe_z_max` leaves them (PLR). The target comes from the simulator (`recorded_first`, SIM).
+Profile: **single axis (Z), commanded target from the model**. Every channel up to the top of its Z travel, `Pipettes.configuration.z_range[1]`, where `probe_z_max` leaves them (PLR). The simulator writes this ahead of the command, since its reads answer from the model (SIM, `SimulatedPipettes.probe_z_max`); the driver's read-back is what confirms it.
 
 ### `C0 ZT` — pick up the CO-RE grip tools (`Pipettes.pick_up_core_gripper_tools`)
 Profile: **stroke with handover**, on two adjacent channels.

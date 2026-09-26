@@ -99,6 +99,7 @@ Findings recorded along the way:
 | 4.11 | Park `C0 PG`, autoload, initialisation | Undocumented; heuristic, marked | — |
 | 4.12 | Model validator (spatial facts with sources; AI-drafted parametric models, e.g. the 96-head) | Proposal (earlier notes, section 10a) | 3.9 |
 | 4.13 | Validation on hardware: transport ordering, CO-RE X fix, timing | Needs a STAR | — |
+| 4.14 | Reconcile failed commands: on an error answer, stop the motion and move (not jump) to the position read back; test with injected simulator errors | The page animates intent before the answer. Small–medium | 4.4 |
 
 ---
 
@@ -106,7 +107,11 @@ Findings recorded along the way:
 
 1. **Animate from firmware commands, not from model changes.** A model change says where things end, never how they got there. Different commands can produce the same final state with different motion (tip pick-up vs a plain Z move). Only the command carries speeds, ordering and intermediate heights. Tweening state differences would re-implement the firmware's model anyway, with less information.
 2. **Python waits on the animation.** PyLabRobot is asyncio. Blocking each command until every page reports it has played paces a simulated run to the drawing with no extra timing model. The 120 s cap keeps a stuck page from hanging a run.
-3. **The page must already be where the model says.** Every model update is checked against the page (0.11 mm / 0.11°). Commands whose targets the simulator writes *before* the command is sent (`C0 FY`, `C0 ZA`, iSWAP moves) are marked `recorded_first`: their state is held back, so the page doesn't jump ahead of its own animation.
+3. **The page must already be where the model says.** Every model update is checked against the page (0.11 mm / 0.11°). For some commands the model already holds the *commanded* target by the time the viewer sees the command:
+   - the v1 driver's iSWAP moves write their target as they send it, then read the drive back in a `finally`, on success and failure alike (PR #1314);
+   - the simulator writes `C0 FY` and `C0 ZA` ahead, because its reads answer from the model, so the write-ahead *is* the simulated device's move.
+
+   These commands are marked `recorded_first`: that state is held back until the page has animated there. This is sequencing, not knowledge of success. The page always animates a command's intent before its answer. A failed command (which the simulator never produces unless an error is injected) would leave the page at the commanded position until the read-back arrives, which then shows up as a jump. Reconciling that is planned work (4.14).
 4. **Plan plate moves from primitives instead of compound commands.** The firmware's `C0 PP/PR/PM` "choos[es] among multiple valid poses unpredictably" ([discuss.pylabrobot.org/t/517/1](https://discuss.pylabrobot.org/t/intro-to-epic-tame-the-iswap/517/1)), and their internal motion isn't public. Planning in Python makes every step visible, overridable and drawable, and the tree can be updated exactly when the jaws grip and release.
 5. **One fixed travel height; collisions checked, never avoided by computing heights.** A height worked out from the deck hides collisions instead of reporting them, and it makes motion depend on what happens to be on the deck. The iSWAP travels at its own `default_minimum_traverse_height` (284 mm). Collision checking is a separate pass that reports.
 6. **Only moving things are checked against still ones, with convex sweeps.** No all-against-all checks. Straight moves and moves on independent axes are swept exactly as convex hulls. Turns are cut into arcs, each grown by a proven curvature bound (|p''| ≤ Δe²|a| + (Δe+Δw)²|b|, deviation ≤ max|p''|/8), which gave ≈30× fewer segments than a naive bound. Two moving groups are compared only over shared time slices.
