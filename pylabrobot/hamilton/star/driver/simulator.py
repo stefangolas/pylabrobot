@@ -943,6 +943,41 @@ class SimulatedHead96(_SimulatedHead, Head96):
   def _declared(self) -> Head96Configuration:
     return self.device.simulated_head96
 
+  async def answer(self, module: str, command: str, **kwargs: Any) -> Optional[Tuple[Any, str]]:
+    if module == "C0" and command in ("EP", "ER"):
+      # A tip command moves the arm and the head itself. Where it leaves them is written once the
+      # tips have changed hands (`_record_after_tip_command`), since the height it ends at is the
+      # bottom of what the head then carries.
+      self._tip_command: Optional[Dict[str, Any]] = dict(kwargs)
+      return None
+    return await super().answer(module, command, **kwargs)
+
+  async def _record_after_tip_command(self) -> None:
+    sent = getattr(self, "_tip_command", None)
+    self._tip_command = None
+    if sent is not None:
+      self._place_after_tip_command(sent)
+    await super()._record_after_tip_command()
+
+  def _place_after_tip_command(self, sent: Dict[str, Any]) -> None:
+    """Put the arm and the head where a tip command leaves them: channel A1 over the X and Y it
+    was sent to, and the bottom of what it carries at the height the command ends at."""
+    deck = self.device.deck
+    if self.resource is None or deck is None:
+      return
+    shaft = self.resource.get_item(HEAD_REFERENCE_SHAFT)
+    x = int(sent["xs"]) / 10 * (-1 if int(sent["xd"]) else 1)
+    arm = self.arm
+    if arm is not None and arm.resource is not None and arm.resource.location is not None:
+      a1 = shaft.get_location_wrt(deck)
+      reference = arm.resource.location.x + arm.configuration.reference_point_from_left
+      arm.update_location_by_reference_point(reference + x - a1.x)
+    bottom = shaft.tip_bottom()
+    overhang = -bottom.z if bottom is not None else 0.0
+    self.update_location_by_reference_point(
+      y=int(sent["yh"]) / 10, z=int(sent["ze"]) / 10 + overhang
+    )
+
   async def request_hardware(self) -> List[str]:
     # Rendered from what this head is, rather than written out separately: a head configured
     # differently answers differently.

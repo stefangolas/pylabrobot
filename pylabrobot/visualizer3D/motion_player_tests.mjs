@@ -340,18 +340,20 @@ test("a lid let go of on an empty site lands on the site", () => {
   assert.equal(siteUnder(lidAt(100), [site], LID), 1);
 });
 
-test("a tip is handed over at the place the model gives it", async () => {
+test("a tip is handed over where it stands, then seated where the model gives it", async () => {
   const world = fakeWorld(start());
   const deps = world.deps();
   const placed = [];
   deps.attach = (name, parent, where) => placed.push({ name, parent, where });
-  const location = { x: -0.6, y: -0.6, z: -87.1 };
+  const location = { x: -0.6, y: -0.6, z: -2.05 };
   const request = {
     ...pickUp,
     attach: [{ name: "tip", parent: "shaft0", location, rotation: { x: 0, y: 0, z: 0 } }],
   };
   await playOut(createPlayer(deps), request);
-  assert.deepEqual(placed, [
-    { name: "tip", parent: "shaft0", where: { location, rotation: { x: 0, y: 0, z: 0 } } },
-  ]);
+  // No place given with the handover: it keeps where it is, and moves only as a seating.
+  assert.deepEqual(placed, [{ name: "tip", parent: "shaft0", where: undefined }]);
+  assert.deepEqual(world.at("tip"), [-0.6, -0.6, -2.05]);
+  const seating = world.log.filter((e) => e.name === "tip" && e.axis === 2).map((e) => e.value);
+  assert.ok(seating.length > 2, "the tip jumped to its seat instead of moving there");
 });

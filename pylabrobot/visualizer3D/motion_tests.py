@@ -138,6 +138,38 @@ class DecoderTests(unittest.IsolatedAsyncioTestCase):
     self.assertIsNone(star_motion(self.star.driver, "C0", "XX", {}))
 
 
+class Head96DecoderTests(unittest.IsolatedAsyncioTestCase):
+  """A 96-head tip command is read for where it takes the arm and the head, and which tips move."""
+
+  async def test_a_rack_is_picked_up_and_put_back_where_the_model_then_has_it(self):
+    facility, star = await simulated_star(self)
+    head = star.driver.arms[0].head96
+    requests: List[Dict[str, Any]] = []
+
+    async def listen(module: str, command: str, params: Dict[str, Any]) -> None:
+      request = star_motion(star.driver, module, command, params)
+      if request is not None:
+        requests.append(request)
+
+    star.driver.motion_listener = listen
+    rack = star.deck.get_resource("tips_0")
+    tips = [spot.tip for spot in rack.get_all_items()]
+    for operation in (head.pick_up_tips, head.drop_tips):
+      requests.clear()
+      await operation(rack)
+      stroke = [r for r in requests if r["kind"].startswith("head96_tip")][-1]
+      self.assertAlmostEqual(stroke["arm"]["x"], star.x_arm.resource.location.x, delta=0.05)
+      target = stroke["channels"][0]
+      self.assertAlmostEqual(target["y"], head.resource.location.y, delta=0.05)
+      self.assertAlmostEqual(target["end"], head.resource.location.z, delta=0.05)
+      self.assertEqual(len(stroke["attach"]), 96)
+      for handover, tip in zip(stroke["attach"], tips):
+        self.assertEqual(handover["name"], tip.name)
+        self.assertEqual(handover["parent"], tip.parent.name)
+        for axis in "xyz":
+          self.assertAlmostEqual(handover["location"][axis], getattr(tip.location, axis), 6)
+
+
 class FakePage:
   """A page that is only a websocket: it plays each motion by waiting `delay` seconds."""
 

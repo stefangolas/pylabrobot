@@ -168,10 +168,31 @@ function applyMoves(moves) {
   }
 }
 
-// A resource handed to a new holder: where the model will have it, or where it stands.
+// A resource handed to a new holder: where the model will have it, or where it stands. A handover
+// that moves what changes hands is reported: it should keep where it is, and only then move.
 function reattach(name, parentName, placed) {
   const i = indexOfName.get(name);
   if (i === undefined) return;
+  const before = worldMatrices()[i];
+  handOver(name, parentName, placed);
+  const after = worldMatrices()[i];
+  const d = Math.hypot(after[12] - before[12], after[13] - before[13], after[14] - before[14]);
+  if (d >= still / 10 && handovers.length < KEEP) {
+    handovers.push({
+      name,
+      category: categoryOf(i),
+      mm: round(d),
+      t: round(motionTime),
+      to: parentName,
+      after: lastEvent,
+      from: [before[12], before[13], before[14]].map(round),
+      landed: [after[12], after[13], after[14]].map(round),
+    });
+  }
+}
+
+function handOver(name, parentName, placed) {
+  const i = indexOfName.get(name);
   const parent = parentName === null ? -1 : (indexOfName.get(parentName) ?? -1);
   if (placed && parent >= 0) {
     reparent(i, parent);
@@ -269,6 +290,8 @@ const active = new Map();
 const jumps = [];
 const strays = [];
 const snaps = [];
+// Tips, plates and lids that moved in being handed over, rather than keeping where they were.
+const handovers = [];
 // A model update that finds the page somewhere else than it says: the motion ended short, long or
 // beside where the model has the resource.
 const arrivals = [];
@@ -454,6 +477,7 @@ process.stdin.on("end", () => {
       jumps,
       strays,
       snaps,
+      handovers,
       arrivals,
       undecoded: [...undecoded].sort(),
       carried: [...carried],

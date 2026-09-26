@@ -16,6 +16,8 @@ the pace of the motion, `speed` times as fast as the drives. It reports:
 - snaps: anything moving outside a motion at all. Everything that moves should be acted out, so a
   snap is the model putting something somewhere with no motion to draw the way: a command the viewer
   does not read, or a motion that ends somewhere else than the model does;
+- handovers: a tip, plate or lid that moved in being handed to a new holder - a shaft, a spot, a
+  gripper, a site - rather than keeping where it was and then moving there;
 - arrivals: a model update that finds the page anywhere but where it says - checked on every update,
   for every position and rotation in it, whether or not anything visibly moved;
 - and, given the model, every resource at the end where the model has it, but what the page carried
@@ -51,6 +53,7 @@ class Report:
   jumps: List[Dict[str, Any]] = field(default_factory=list)
   strays: List[Dict[str, Any]] = field(default_factory=list)
   snaps: List[Dict[str, Any]] = field(default_factory=list)
+  handovers: List[Dict[str, Any]] = field(default_factory=list)
   arrivals: List[Dict[str, Any]] = field(default_factory=list)
   undecoded: List[str] = field(default_factory=list)
   carried: List[str] = field(default_factory=list)
@@ -138,6 +141,7 @@ async def watched(
       report.jumps = result["jumps"]
       report.strays = result["strays"]
       report.snaps = result["snaps"]
+      report.handovers = result["handovers"]
       report.arrivals = result["arrivals"]
       report.undecoded = result["undecoded"]
       report.carried = result["carried"]
@@ -155,6 +159,12 @@ def _describe(kind: str, found: List[Dict[str, Any]]) -> List[str]:
       lines.append(
         f"  {item['name']} [{item['category']}]: {item['kind']} after {item['after']} says "
         f"{item['model']}, page had {item['page']} ({off})"
+      )
+      continue
+    if "landed" in item:
+      lines.append(
+        f"  {item['name']} [{item['category']}]: moved {item['mm']} mm in being handed to "
+        f"{item['to']}, at t={item['t']} s: {item['from']} -> {item['landed']}"
       )
       continue
     if "model_at" in item:
@@ -230,6 +240,7 @@ def assert_smooth(
     ("jumps", [j for j in report.jumps if j["category"] not in skipped]),
     ("strays", [j for j in report.strays if j["category"] not in skipped]),
     ("snaps", [j for j in report.snaps if j["category"] not in snapping]),
+    ("handovers that moved", [j for j in report.handovers if j["category"] not in skipped]),
     ("arrivals elsewhere", [j for j in report.arrivals if j["category"] not in snapping]),
   ]
   if model is not None:

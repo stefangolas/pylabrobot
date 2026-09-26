@@ -110,6 +110,29 @@ class SmoothnessTests(unittest.IsolatedAsyncioTestCase):
 
     await self.smooth(scenario)
 
+  # -- 96-head -----------------------------------------------------------------------------------
+
+  async def test_the_96_head_picks_up_a_rack_and_puts_it_back(self):
+    async def scenario(star: Any) -> None:
+      head = star.driver.arms[0].head96
+      rack = star.deck.get_resource("tips_0")
+      await head.pick_up_tips(rack)
+      await head.drop_tips(rack)
+
+    report = await self.smooth(scenario)
+    self.assertFalse(report.handovers)
+
+  async def test_the_96_head_moves_on_its_own(self):
+    async def scenario(star: Any) -> None:
+      head = star.driver.arms[0].head96
+      y = await head.request_y_position()
+      await head.move_to_y_position(round(y - 150.0, 1))
+      z = await head.request_z_position()
+      await head.move_stop_disc_to_z_position(round(z - 40.0, 1))
+      await head.move_to_safe_z()
+
+    await self.smooth(scenario)
+
   # -- iSWAP -------------------------------------------------------------------------------------
 
   async def test_the_iswap_turns_its_joints(self):

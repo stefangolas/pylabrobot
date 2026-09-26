@@ -158,10 +158,21 @@ export function createPlayer({
         if (!handovers.length && !(request.dwell > 0)) return [];
         return [
           async () => {
-            for (const { name, parent, location, rotation } of handovers) {
-              attach(name, parent ?? null, location ? { location, rotation } : undefined);
+            // Handed over where it stands, so the handover itself moves nothing; then seated where
+            // the model will have it - a tip pressed onto its shaft, or settling in its spot - at the
+            // pace of the Z drive, while whatever the command does at the bottom takes its time.
+            const seating = [];
+            for (const { name, parent, location } of handovers) {
+              attach(name, parent ?? null);
+              const index = indexOf(name);
+              if (!location || index === undefined) continue;
+              ["x", "y", "z"].forEach((key, axis) => {
+                if (Math.abs(readAxis(index, axis) - location[key]) >= STILL / 10) {
+                  seating.push(move(index, axis, location[key], drives.z));
+                }
+              });
             }
-            await pause(request.dwell);
+            await Promise.all([pause(request.dwell), ...seating]);
           },
         ];
       },

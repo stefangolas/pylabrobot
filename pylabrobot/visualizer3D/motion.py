@@ -18,6 +18,8 @@ states no speed or acceleration for the X-arm, so X moves at the threejs visuali
   the arm and the channels moving at once, down onto the spots, and back up.
 - An aspiration dwells for as long as its own volume and flow rate say, plus its settling time, and
   leaves the liquid at its own swap speed.
+- The 96-head's Y and Z move at the head's own drive defaults (`HeadConfiguration`), or at what a
+  move of its own carries; its tip commands make the channels' stroke, channel A1 going to spot A1.
 - An iSWAP command moves one drive or two, each at the speed and acceleration the command carries,
   converted by the arm's own configuration. The elbow's Y is stated only as a level, so it too moves
   at constant speed. A joint turns about the pivot the driver turns it about (`proximal_joint`).
@@ -553,6 +555,164 @@ def _iswap_motion(
   return None
 
 
+# -- 96-head -------------------------------------------------------------------------------------
+
+
+def _head96_of(driver: Any) -> Optional[Any]:
+  """The 96-head, or None when there is none or nothing models it yet."""
+  for arm in getattr(driver, "arms", []):
+    head = arm.head96
+    if head is not None and head.resource is not None and head.resource.location is not None:
+      return head
+  return None
+
+
+class _HeadFrames:
+  """Converts what the head's drives report - channel A1, on the deck - into where its resource
+  sits, as `Head.update_location_by_reference_point` records it."""
+
+  def __init__(self, driver: Any, head: Any):
+    self.driver = driver
+    self.head = head
+    self.resource = head.resource
+    self.a1 = head.resource.get_item("A1")
+    self.on_arm = head.resource.parent.get_location_wrt(driver.deck)
+
+  def local_y(self, y: float) -> float:
+    return round(float(y - self.on_arm.y - self.a1.location.y), 2)
+
+  def local_z(self, stop_disc_z: float) -> float:
+    return round(float(stop_disc_z - self.on_arm.z - self.a1.location.z), 2)
+
+  def overhang(self) -> float:
+    """How far what channel A1 carries hangs below it, in mm."""
+    bottom = self.a1.tip_bottom()
+    return -float(bottom.z) if bottom is not None else 0.0
+
+  def drives(self) -> Dict[str, Dict[str, Optional[float]]]:
+    c = self.head.configuration
+    return {
+      "x": {"speed": X_SPEED, "acceleration": X_ACCELERATION},
+      "y": {"speed": c.y_drive_speed_default, "acceleration": c.y_drive_acceleration_default},
+      "z": {"speed": c.z_drive_speed_default, "acceleration": c.z_drive_acceleration_default},
+    }
+
+  def request(self, kind: str, command: str) -> Dict[str, Any]:
+    return {
+      "kind": kind,
+      "command": command,
+      "arm": None,
+      "channels": [],
+      "traverse": [],
+      "attach": [],
+      "dwell": 0.0,
+      "drives": self.drives(),
+      "moves": [],
+      "turns": [],
+      "jaws": None,
+    }
+
+
+def _rack_at(deck: Any, x: float, y: float) -> Optional[Any]:
+  """The tip rack whose spot A1 is centred at (x, y), or None."""
+  for resource in deck.get_all_children():
+    if isinstance(resource, TipSpot) and resource.parent is not None:
+      centre = resource.get_location_wrt(deck, "c", "c", "b")
+      if abs(centre.x - x) <= SPOT_TOLERANCE and abs(centre.y - y) <= SPOT_TOLERANCE:
+        rack = resource.parent
+        if rack.get_item("A1") is resource:
+          return rack
+  return None
+
+
+def _head96_tips(driver: Any, head: Any, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
+  """`C0 EP` or `C0 ER`: the head's stroke, channel A1 to spot A1.
+
+  Up to traverse height, across - the arm in X, the head in Y - down with the stop discs to the
+  spot's height, the 96 tips changing hands, and up to where the command ends: the bottom of what
+  the head then carries, as the simulator records it (`SimulatedHead96._place_after_tip_command`).
+  """
+  frames = _HeadFrames(driver, head)
+  pick_up = command == "EP"
+  request = frames.request("head96_tip_pickup" if pick_up else "head96_tip_drop", "C0" + command)
+  x = _tenths(params["xs"]) * (-1 if int(params["xd"]) else 1)
+  y = _tenths(params["yh"])
+  arm = head.arm
+  if arm is not None and arm.resource is not None:
+    a1 = frames.a1.get_location_wrt(driver.deck)
+    request["arm"] = {
+      "name": arm.resource.name,
+      "x": round(float(arm.resource.location.x + x - a1.x), 2),
+    }
+
+  rack = _rack_at(driver.deck, x, y)
+  shafts = frames.resource.get_all_items()
+  after = 0.0
+  if pick_up:
+    if rack is not None:
+      for shaft, spot in zip(shafts, rack.get_all_items()):
+        if spot.tip is not None:
+          mounted = _mounted_location(shaft, spot.tip)
+          request["attach"].append(_handover(spot.tip, shaft, mounted))
+          if shaft is frames.a1:
+            after = -mounted["z"]
+  else:
+    for i, shaft in enumerate(shafts):
+      if shaft.tip is None:
+        continue
+      spot = rack.get_item(i) if rack is not None else None
+      if spot is not None and spot.tracks_tips and spot.tip is None:
+        request["attach"].append(
+          _handover(shaft.tip, spot, _xyz(resting_location(spot, shaft.tip)))
+        )
+      else:
+        request["attach"].append(_handover(shaft.tip, None, None))
+
+  name = frames.resource.name
+  request["traverse"] = [
+    {"name": name, "z": frames.local_z(_tenths(params["zh"]) + frames.overhang())}
+  ]
+  request["channels"] = [
+    {
+      "name": name,
+      "channel": 0,
+      "y": frames.local_y(y),
+      # The stop discs go to the spot's height: channel A1 to the centre of spot A1, at its Z.
+      "down": frames.local_z(_tenths(params["za"])),
+      "end": frames.local_z(_tenths(params["ze"]) + after),
+    }
+  ]
+  return request
+
+
+def _head96_move(driver: Any, head: Any, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
+  """`H0 YA` or `H0 ZA`: the head alone, along Y or Z, at the speed the command carries."""
+  frames = _HeadFrames(driver, head)
+  c = head.configuration
+  request = frames.request("head96_move", head.configuration.module + command)
+  if command == "YA":
+    request["moves"].append(
+      {
+        "name": frames.resource.name,
+        "axis": 1,
+        "to": frames.local_y(c.y_drive_increments_to_mm(int(params["ya"]))),
+        "speed": c.y_drive_increments_to_mm(int(params["yv"])),
+        "acceleration": c.y_drive_acceleration_increments_to_mm(int(params["yr"])),
+      }
+    )
+  else:
+    request["moves"].append(
+      {
+        "name": frames.resource.name,
+        "axis": 2,
+        "to": frames.local_z(c.z_drive_increments_to_mm(int(params["za"]))),
+        "speed": c.z_drive_increments_to_mm(int(params["zv"])),
+        "acceleration": c.z_drive_acceleration_increments_to_mm(int(params["zr"])),
+      }
+    )
+  return request
+
+
 def star_motion(
   driver: Any, module: str, command: str, params: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
@@ -579,6 +739,11 @@ def star_motion(
     iswap = _iswap_of(driver)
     if iswap is not None and (module == "R0" or key == "C0GC"):
       return _iswap_motion(driver, iswap, module, command, params)
+    head = _head96_of(driver)
+    if head is not None and key in ("C0EP", "C0ER"):
+      return _head96_tips(driver, head, command, params)
+    if head is not None and module == head.configuration.module and command in ("YA", "ZA"):
+      return _head96_move(driver, head, command, params)
     arm = _pipetting_arm(driver)
     if arm is None:
       return None
