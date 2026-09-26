@@ -276,8 +276,79 @@ Only three Y distances (one sample at 100 mm) and two Z distances exist, so mild
 | `C0 TR` tip drop | 55,088 | 8.02 s | `C0 EA` / `C0 ED` 96-head aspirate / dispense | 49,616 / 48,950 | 7.75 / 6.11 s |
 | `C0 EP` / `C0 ER` 96-head tips | 5,965 / 5,967 | 8.82 / 7.46 s | `C0 RX` read arm X | 744,966 | 0.021 s |
 
-### 8.4 Next fits the same data supports
-- Channel and 96-head Y and Z over many distances, from aspirates and dispenses that differ only in Y or Z. This would settle jerk on those axes.
+### 8.4 Channel commands: a full model, and do the channels move in Y one after another?
+
+**Reproduce:** `python tools/hxusbcomm_channels.py <trace folder>`.
+
+**Method.** Each `C0 AS/DS/TP/TR` is paired with the channel command just before it, when nothing else moved in between, both answered without error, and the active channels share one X. The duration is fit as
+
+d = a[group] + b_v · volume time + b_m · mix time + b_z · Tz(stroke) + b_xy · Txy(dx, dy₁…dy₈)
+
+- A group is the previous command plus every categorical parameter; continuous parameters, and mixing parameters when there is no mixing, are removed.
+- Volume time is volume ÷ flow for the slowest channel. The Z stroke runs from traverse height to the liquid surface or tip height.
+- X uses the §8.1 S-curve and Y the §8.2 trapezoid. Nonlinear constants come from a grid search with the linear solve inside each grid point.
+- A Y shift under 0.5 mm counts as no move (positions jitter by 0.1 mm between commands).
+
+**`C0 AS`** (228,260 pairs, 706 groups; Y moves: 63,073 × 8 channels, 5,532 × 7, 95 × 2–4):
+
+| Txy model | R² within | RMS | AIC | BIC |
+|---|---|---|---|---|
+| no XY | 0.9610 | 96.3 ms | −1,067,012 | −1,059,682 |
+| X only | 0.9831 | 63.4 ms | −1,257,512 | −1,250,172 |
+| Y together (max) | 0.9708 | 83.4 ms | −1,132,777 | −1,125,437 |
+| Y sequential (sum) | 0.9708 | 83.2 ms | −1,133,447 | −1,126,107 |
+| max(X, Y together) | 0.9885 | 52.4 ms | −1,345,185 | −1,337,845 |
+| max(X, Y sequential) | 0.9756 | 76.2 ms | −1,173,739 | −1,166,398 |
+| X then Y together | 0.9853 | 59.1 ms | −1,290,135 | −1,282,795 |
+| X then Y sequential | 0.9740 | 78.6 ms | −1,159,627 | −1,152,287 |
+| **max(X, Y together + 0.80 s when Y moves)** | **0.9950** | **34.5 ms** | **−1,536,170** | **−1,528,820** |
+| max(X, Y together + 0.12 s per extra channel) | 0.9950 | 34.6 ms | −1,534,356 | −1,527,005 |
+| max(X, Y together + 0.80 s + 0.00 s per extra channel) | 0.9950 | 34.5 ms | −1,536,168 | −1,528,807 |
+
+**`C0 DS`** (216,436 pairs, 357 groups; Y moves: 67,759 × 8, 5,533 × 7, 71 × 4):
+
+| Txy model | R² within | RMS | AIC | BIC |
+|---|---|---|---|---|
+| no XY | 0.8699 | 148.8 ms | −824,027 | −820,324 |
+| X only | 0.8820 | 141.7 ms | −845,089 | −841,376 |
+| Y together (max) | 0.9637 | 78.6 ms | −1,100,086 | −1,096,373 |
+| Y sequential (sum) | 0.9639 | 78.4 ms | −1,101,521 | −1,097,808 |
+| max(X, Y together) | 0.8941 | 134.3 ms | −868,499 | −864,786 |
+| max(X, Y sequential) | 0.9730 | 67.8 ms | −1,164,167 | −1,160,454 |
+| X then Y together | 0.9335 | 106.3 ms | −969,445 | −965,732 |
+| X then Y sequential | 0.9632 | 79.1 ms | −1,097,515 | −1,093,802 |
+| max(X, Y together + 0.75 s when Y moves) | 0.9885 | 44.3 ms | −1,348,629 | −1,344,906 |
+| max(X, Y together + 0.12 s per extra channel) | 0.9884 | 44.4 ms | −1,347,722 | −1,343,999 |
+| **max(X, Y together + 0.20 s + 0.08 s per extra channel)** | **0.9887** | **43.9 ms** | **−1,352,573** | **−1,348,840** |
+
+**`C0 TP` / `C0 TR`:** within groups, a tip pick-up never changes Y. The best models reach R² 0.05 (TP, RMS 26 ms) and 0.007 (TR, RMS 123 ms). Nothing about Y can be read from them.
+
+**What is established:**
+- X and Y overlap. In an earlier pass with a coarser key, max(X, Y together + a fitted Y cost) beat X-then-Y-with-its-own-fitted-cost by ΔAIC ≈ 212,000 (AS) and ≈ 433,000 (DS).
+- Any Y move costs ≈0.75–0.80 s on top of its travel time (FIT).
+- Volume time enters with slope 0.99–1.02 (FIT).
+
+**What is not established: ripple, i.e. whether the Y cost is a stagger per channel.** A flat 0.80 s and 0.12 s per extra channel (0.84 s for 8 channels) predict the same for the 8- and 7-channel moves that make up 99.9% of the data, so their AIC difference is small. For DS, the joint model's per-channel part rests on the 7-vs-8 split, which is also a split between protocols.
+- The one independent test uses held-out rows with 2–6 channels moving, fitted on the rest.
+- On 53 four-channel dispenses from one protocol, the flat 0.80 s overpredicts by 0.50 s (RMS 498 ms), while 0.12 s per extra channel misses by only −0.07 s (RMS 86 ms). This points to a stagger, but it comes from a single protocol.
+- The aspirate "few-channel" rows are 0.1 mm jitter, not moves.
+- **Verdict: suggestive, not confirmed.** A run that moves 1–4 channels in Y inside otherwise identical commands would settle it. Single-channel `C0 KY` jogs (overhead ≈65–75 ms beyond travel) are a different command and aren't used as evidence.
+
+**Pure Z,** from DS→AS pairs with no X or Y change and no mixing (32,968 pairs):
+- Strokes span 12.9–57.9 mm in two clusters, 13 mm and 53–56 mm.
+- Z is identified only when inert parameters are left out of the group key. With the mixing speed in the key, groups split by protocol and absorb the stroke: R² gains just 0.0002.
+
+| Model (group key without inert parameters) | R² within | RMS | AIC | BIC |
+|---|---|---|---|---|
+| volume only | 0.7644 | 134.9 ms | −132,056 | −131,972 |
+| volume + linear stroke (0.0142 s/mm) | 0.9858 | 33.2 ms | −224,555 | −224,463 |
+| **volume + 2 × trapezoid (v 150 mm/s, a 800 mm/s²), slope fixed at 1** | **0.9858** | **33.1 ms** | **−224,741** | **−224,640** |
+| volume + 2 × trapezoid (v 125, a 800) | 0.9812 | 38.1 ms | −215,344 | −215,260 |
+
+The acceleration agrees with PLR's `default_z_acceleration` (800 mm/s²). The speed is loosely determined (150–200 mm/s across group keys), because the strokes form two clusters.
+
+### 8.5 Next fits the same data supports
+- A decisive Y-ripple run (above), and 96-head Y and Z over many distances.
 - iSWAP get/put/park against their parameters. `C0 PP`, `PR` and `PG` are black boxes, but 110k timed examples with positions constrain their internal phases.
 - Per-command overheads for the page, so a drawn command takes as long as the real one.
 - The X/Z overlap in tip commands, as a phase overlap in the player.
