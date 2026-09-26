@@ -4,7 +4,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createPlayer } from "./static/motion_player.js";
+import { heldAt, siteUnder } from "./static/carry.js";
+import { createPlayer, turnedLocation } from "./static/motion_player.js";
 import { motionProfile } from "./static/motion_profile.js";
 
 const DRIVES = {
@@ -176,4 +177,133 @@ test("the profile reaches the end exactly and never overshoots", () => {
       assert.ok(p.progress(t) >= 0 && p.progress(t) <= 1);
     }
   }
+});
+
+// -- iSWAP -----------------------------------------------------------------------------------------
+
+test("a turn keeps its pivot where PyLabRobot's rotate_to keeps it", () => {
+  // iSWAP link 1 in the demo, turned by `rotate_to(z=200, pivot_coordinate=proximal_joint)`.
+  const pivot = { x: 12.7, y: 12.75, z: -20.3 };
+  const after = turnedLocation({ x: 2.8527, y: 2.2055, z: -15.3 }, 1.34477, 200, pivot);
+  assert.ok(Math.abs(after.x - 22.8233) < 1e-3 && Math.abs(after.y - 31.5748) < 1e-3);
+  assert.equal(after.z, -15.3);
+});
+
+// A joint as the page has it: its rotation and location, turned through `turnTo`.
+function jointWorld(rotation, location) {
+  const state = { rotation, location: { ...location } };
+  const turns = [];
+  const deps = {
+    readAxis: (_i, axis) => (axis === 5 ? state.rotation : 0),
+    setAxis: () => {},
+    indexOf: (name) => (name === "link" ? 0 : undefined),
+    attach: () => {},
+    skipping: () => false,
+    turnTo: (_i, degrees, pivot) => {
+      state.location = turnedLocation(state.location, state.rotation, degrees, pivot);
+      state.rotation = degrees;
+      turns.push(degrees);
+    },
+  };
+  return { state, turns, deps };
+}
+
+test("a joint turns the way its drive runs, from its angle to the one sent", async () => {
+  // Link 1 pointing right (drive 90, rotation 0) sent to the left (drive -90): through the front
+  // (rotation 270), not the short way through the back.
+  const pivot = { x: 12.7, y: 12.75, z: -20.3 };
+  const { state, turns, deps } = jointWorld(0, { x: 0, y: 0, z: 0 });
+  const start = turnedLocation(state.location, 0, 0, pivot);
+  const turn = { name: "link", drive: -90, base: 90, pivot, speed: 60, acceleration: 200 };
+  await playOut(createPlayer(deps), { turns: [turn] });
+  assert.equal(((state.rotation % 360) + 360) % 360, 180);
+  const unwrapped = turns.map((z) => z + 90);
+  assert.ok(unwrapped.some((d) => Math.abs(d) < 5), "it did not pass through the front");
+  for (let i = 1; i < unwrapped.length; i++) assert.ok(unwrapped[i] <= unwrapped[i - 1] + 1e-9);
+  // The pivot has not moved.
+  const a = (state.rotation * Math.PI) / 180;
+  const px = state.location.x + Math.cos(a) * pivot.x - Math.sin(a) * pivot.y;
+  const py = state.location.y + Math.sin(a) * pivot.x + Math.cos(a) * pivot.y;
+  const p0x = start.x + pivot.x;
+  const p0y = start.y + pivot.y;
+  assert.ok(Math.abs(px - p0x) < 1e-6 && Math.abs(py - p0y) < 1e-6, "the pivot moved");
+});
+
+test("a turn takes as long as its drive's speed and acceleration say", async () => {
+  const { deps } = jointWorld(0, { x: 0, y: 0, z: 0 });
+  const turn = { name: "link", drive: -90, base: 90, pivot: { x: 0, y: 0, z: 0 }, speed: 60, acceleration: 200 };
+  const seconds = await playOut(createPlayer(deps), { turns: [turn] });
+  const expected = motionProfile(180, 60, 200).duration;
+  assert.ok(Math.abs(seconds - expected) < 0.1, `took ${seconds}, expected ${expected}`);
+});
+
+function jawsWorld(y0, y1) {
+  const at = { f0: y0, f1: y1 };
+  const log = [];
+  const deps = {
+    readAxis: (i) => (i === 0 ? at.f0 : at.f1),
+    setAxis: (i, _axis, value) => {
+      at[i === 0 ? "f0" : "f1"] = value;
+    },
+    indexOf: (name) => ({ f0: 0, f1: 1 })[name],
+    attach: () => {},
+    skipping: () => false,
+    grip: (gripper) => log.push({ grip: gripper, f0: at.f0 }),
+    release: (gripper) => log.push({ release: gripper, f0: at.f0 }),
+  };
+  return { at, log, deps };
+}
+
+const jaws = (f0, f1) => ({
+  jaws: {
+    gripper: "g",
+    fingers: [
+      { name: "f0", y: f0 },
+      { name: "f1", y: f1 },
+    ],
+    speed: 20,
+    acceleration: 100,
+    grip_point: { x: 0, y: 0, z: 0 },
+  },
+});
+
+test("jaws that close take hold once they have closed", async () => {
+  const { log, deps } = jawsWorld(110, -20);
+  await playOut(createPlayer(deps), jaws(90, 0));
+  assert.deepEqual(log, [{ grip: "g", f0: 90 }]);
+});
+
+test("jaws that open let go before they move", async () => {
+  const { log, deps } = jawsWorld(90, 0);
+  await playOut(createPlayer(deps), jaws(110, -20));
+  assert.deepEqual(log, [{ release: "g", f0: 90 }]);
+});
+
+const box = (x0, y0, z0, x1, y1, z1) => ({
+  min: { x: x0, y: y0, z: z0 },
+  max: { x: x1, y: y1, z: z1 },
+});
+
+test("the jaws take the plate, not a well in it or the site under it", () => {
+  const candidates = [
+    { index: 1, category: "plate_holder", box: box(0, 0, 100, 127, 86, 100) },
+    { index: 2, category: "plate", box: box(0, 0, 97, 128, 85, 111) },
+    { index: 3, category: "well", box: box(60, 40, 98, 67, 47, 111) },
+    { index: 4, category: "plate_carrier", box: box(-5, -5, 0, 140, 500, 120) },
+  ];
+  assert.equal(heldAt({ x: 64, y: 43, z: 104 }, candidates), 2);
+  assert.equal(heldAt({ x: 300, y: 43, z: 104 }, candidates), undefined);
+});
+
+test("a plate let go of lands on the site under it", () => {
+  const plate = box(200, 0, 97, 328, 85, 111);
+  const sites = [
+    { index: 1, category: "plate_holder", box: box(0, 0, 100, 127, 86, 100) },
+    { index: 5, category: "plate_holder", box: box(200, 0, 100, 327, 86, 100) },
+    { index: 6, category: "plate_holder", box: box(200, 0, 40, 327, 86, 40) },
+  ];
+  // The skirt sits 3 mm into the site: its surface stands above the plate's bottom.
+  assert.equal(siteUnder(plate, sites, 9), 5);
+  // Carried away from any site, it has none.
+  assert.equal(siteUnder(box(600, 0, 97, 728, 85, 111), sites, 9), undefined);
 });

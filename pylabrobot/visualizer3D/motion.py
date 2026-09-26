@@ -18,6 +18,9 @@ states no speed or acceleration for the X-arm, so X moves at the threejs visuali
   the arm and the channels moving at once, down onto the spots, and back up.
 - An aspiration dwells for as long as its own volume and flow rate say, plus its settling time, and
   leaves the liquid at its own swap speed.
+- An iSWAP command moves one drive or two, each at the speed and acceleration the command carries,
+  converted by the arm's own configuration. The elbow's Y is stated only as a level, so it too moves
+  at constant speed. A joint turns about the pivot the driver turns it about (`proximal_joint`).
 
 Heights: the firmware positions the lowest point of what a channel carries, while a channel's
 resource is placed by its stop disc, which sits higher by the length of a mounted tip. Every Z here
@@ -154,6 +157,9 @@ def _request(frames: _Frames, kind: str, command: str) -> Dict[str, Any]:
     "attach": [],
     "dwell": 0.0,
     "drives": frames.drives(),
+    "moves": [],
+    "turns": [],
+    "jaws": None,
   }
 
 
@@ -324,6 +330,163 @@ def _move_x(frames: _Frames, driver: Any, command: str, params: Dict[str, Any]) 
   return request
 
 
+# -- iSWAP ---------------------------------------------------------------------
+
+
+def _iswap_of(driver: Any) -> Optional[Any]:
+  """The iSWAP, or None when there is none or nothing models it yet."""
+  for arm in getattr(driver, "arms", []):
+    iswap = arm.iswap
+    if iswap is not None and None not in (iswap.resource, iswap.link_1, iswap.gripper):
+      return iswap
+  return None
+
+
+def _xyz(coordinate: Any) -> Dict[str, float]:
+  return {"x": float(coordinate.x), "y": float(coordinate.y), "z": float(coordinate.z)}
+
+
+def _iswap_request(kind: str, command: str) -> Dict[str, Any]:
+  return {
+    "kind": kind,
+    "command": command,
+    "arm": None,
+    "channels": [],
+    "traverse": [],
+    "attach": [],
+    "dwell": 0.0,
+    "drives": {},
+    "moves": [],
+    "turns": [],
+    "jaws": None,
+  }
+
+
+def _elbow_move(driver: Any, iswap: Any, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
+  """`R0 YA` or `R0 ZA`: the head the arm hangs from, along Y or Z."""
+  c = iswap.configuration
+  head = iswap.resource
+  on_arm, anchor = head.parent.get_location_wrt(driver.deck), head.reference_point
+  request = _iswap_request("iswap_move", "R0" + command)
+  if command == "YA":
+    y = c.y_increments_to_mm(int(params["ya"]))
+    request["moves"].append(
+      {
+        "name": head.name,
+        "axis": 1,
+        "to": round(float(y - on_arm.y - anchor.y), 2),
+        "speed": c.y_increments_to_mm(int(params["yv"])),
+        "acceleration": None,
+      }
+    )
+  else:
+    # The drive counts the finger plane; the head's bottom stands above it.
+    z = c.z_increments_to_mm(int(params["za"])) + c.elbow_z_offset_above_finger
+    request["moves"].append(
+      {
+        "name": head.name,
+        "axis": 2,
+        "to": round(float(z - on_arm.z - anchor.z), 2),
+        "speed": c.z_increments_to_mm(int(params["zv"])),
+        "acceleration": round(int(params["zr"]) * 1000 * c.z_mm_per_increment, 2),
+      }
+    )
+  return request
+
+
+def _joints(iswap: Any, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
+  """`R0 PA`: the elbow and the wrist together, each to its own angle at its own speed.
+
+  A joint's angle is stated as its drive reports it; `base` is what the driver subtracts from it to
+  get the resource's rotation (`elbow_drive_update_angle`, `wrist_drive_update_angle`).
+  """
+  c = iswap.configuration
+  request = _iswap_request("iswap_turn", "R0" + command)
+  link, gripper = iswap.link_1, iswap.gripper
+  request["turns"].append(
+    {
+      "name": link.name,
+      "drive": c.elbow_drive_increments_to_angle(int(params["wa"])),
+      "base": 90.0,
+      "pivot": _xyz(link.proximal_joint),
+      "speed": c.elbow_increments_to_deg_per_sec(int(params["wv"])),
+      "acceleration": c.elbow_increments_to_deg_per_sec2(int(params["wr"])),
+    }
+  )
+  if c.wrist_drive_predefined_increments is not None:
+    request["turns"].append(
+      {
+        "name": gripper.name,
+        "drive": c.wrist_increments_to_deg(int(params["ta"])),
+        "base": c.wrist_increments_to_deg(c.wrist_drive_predefined_increments.straight),
+        "pivot": _xyz(gripper.proximal_joint),
+        "speed": c.wrist_increments_to_deg_per_sec(int(params["tv"])),
+        "acceleration": c.wrist_increments_to_deg_per_sec2(int(params["tr"])),
+      }
+    )
+  return request
+
+
+def _jaws(
+  iswap: Any, command: str, width: float, speed: float, acceleration: float
+) -> Optional[Dict[str, Any]]:
+  """The fingers stood `width` apart, as `MechanicalGripper._place_the_fingers` stands them.
+
+  Each finger travels half of what the width does, in the same time, so at half the drive's speed.
+  The page decides from which way they move whether this closes on something or lets it go.
+  """
+  gripper = iswap.gripper
+  low, high = gripper.jaw_range
+  if not low <= width <= high:
+    return None  # the model leaves the jaws where they are, and so does the page
+  centre = gripper.proximal_joint.y + gripper.tool_center_point.y
+  fingers = []
+  for finger, side in zip(gripper.fingers, (1.0, -1.0)):
+    facing = centre + side * width / 2.0
+    fingers.append(
+      {"name": finger.name, "y": round(facing if side > 0 else facing - finger.get_size_y(), 3)}
+    )
+  request = _iswap_request("iswap_jaws", command)
+  request["jaws"] = {
+    "gripper": gripper.name,
+    "width": width,
+    "fingers": fingers,
+    "speed": speed / 2.0,
+    "acceleration": acceleration / 2.0,
+    # Where the fingers close, in the gripper's own frame: what they take hold of is there.
+    "grip_point": _xyz(gripper.proximal_joint + gripper.tool_center_point),
+  }
+  return request
+
+
+def _iswap_motion(
+  driver: Any, iswap: Any, module: str, command: str, params: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+  c = iswap.configuration
+  if module == "R0" and command in ("YA", "ZA"):
+    return _elbow_move(driver, iswap, command, params)
+  if module == "R0" and command == "PA":
+    return _joints(iswap, command, params)
+  if module == "R0" and command == "GA":
+    return _jaws(
+      iswap,
+      "R0GA",
+      c.gripper_increments_to_mm(int(params["ga"])),
+      c.gripper_increments_to_mm_per_sec(int(params["gv"])),
+      c.gripper_increments_to_mm_per_sec2(int(params["gr"])),
+    )
+  if module == "C0" and command == "GC":
+    # Closes onto what is there, at the drive's closing speed; the width is in tenths of a mm.
+    return _jaws(
+      iswap,
+      "C0GC",
+      _tenths(params["gb"]),
+      c.gripper_increments_to_mm_per_sec(c.gripper_close_speed_default_increments),
+      c.gripper_increments_to_mm_per_sec2(c.gripper_acceleration_default_increments),
+    )
+  return None
+
+
 def star_motion(
   driver: Any, module: str, command: str, params: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
@@ -345,12 +508,15 @@ def star_motion(
   """
   if command[0] in ("R", "Q"):
     return None
-  arm = _pipetting_arm(driver)
-  if arm is None:
-    return None
-  frames = _Frames(driver, arm)
   key = module + command
   try:
+    iswap = _iswap_of(driver)
+    if iswap is not None and (module == "R0" or key == "C0GC"):
+      return _iswap_motion(driver, iswap, module, command, params)
+    arm = _pipetting_arm(driver)
+    if arm is None:
+      return None
+    frames = _Frames(driver, arm)
     if key == "C0TP":
       return _tip_pickup(frames, key, params)
     if key == "C0TR":

@@ -18,6 +18,7 @@ import {
 } from "./drawn.js";
 import { armPose, arms, gridMarks, referenceMarks, refreshHalos } from "./marks.js";
 import { applyJoints } from "./models.js";
+import { turnedLocation } from "./motion_player.js";
 import {
   mirrorPlacement,
   modelOf,
@@ -428,4 +429,25 @@ export function reattach(name, parentName) {
       rotation: { x: euler.x / DEG, y: euler.y / DEG, z: euler.z / DEG },
     },
   ]);
+}
+
+/**
+ * Turn a resource about Z to `degrees`, relative to its parent, keeping `pivot` - a point in its own
+ * frame - where it is. What `Resource.rotate_to(z=..., pivot_coordinate=...)` does to it, one frame
+ * of a turn at a time. A joint turns only about Z; the other angles are left as they are.
+ *
+ * @param {number} index
+ * @param {number} degrees
+ * @param {{x: number, y: number, z: number}} pivot
+ */
+export function turnTo(index, degrees, pivot) {
+  const o = index * 6;
+  const local = world.local;
+  const here = { x: local[o], y: local[o + 1], z: local[o + 2] };
+  const moved = turnedLocation(here, local[o + 5], degrees, pivot);
+  setLocalRotation(index, { x: local[o + 3], y: local[o + 4], z: degrees });
+  setLocal(index, moved);
+  glides.delete(index);
+  refreshSubtree(index);
+  announce({ kind: "glide", index });
 }

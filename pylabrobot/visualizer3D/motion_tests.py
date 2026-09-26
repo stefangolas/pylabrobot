@@ -135,6 +135,7 @@ class FakePage:
         self.events.append(kind)
         if kind == "state" and data.get("locations"):
           self.events.append("locations")
+          self.events.extend(f"at:{name}" for name in data["locations"])
         if kind == "motion" and self.delay is not None:
           asyncio.ensure_future(self._play(data["id"]))
     except websockets.ConnectionClosed:
@@ -202,6 +203,83 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
     between = page.events[motions[0] + 1 : motions[-1]]
     # The pick-up took a tip onto a shaft, a change of shape, which carries the positions with it.
     self.assertIn("moves", between, f"the pick-up reached the page too late: {page.events}")
+
+
+class ISWAPDecoderTests(unittest.IsolatedAsyncioTestCase):
+  """An iSWAP command is read for the drives it moves, which is where the model then has them."""
+
+  async def asyncSetUp(self) -> None:
+    self.facility, self.star = await simulated_star(self)
+    self.iswap = self.star.iswap
+    self.requests: List[Dict[str, Any]] = []
+
+    async def listen(module: str, command: str, params: Dict[str, Any]) -> None:
+      request = star_motion(self.star.driver, module, command, params)
+      if request is not None:
+        self.requests.append(request)
+
+    self.star.driver.motion_listener = listen
+    await self.iswap.make_space()
+    self.parked = await self.iswap.elbow_request_y_position()
+
+  def last(self, kind: str) -> Dict[str, Any]:
+    return [r for r in self.requests if r["kind"] == kind][-1]
+
+  async def test_the_head_moves_where_the_model_puts_it(self):
+    await self.iswap.elbow_move_to_y_position(self.parked - 150.0)
+    await self.iswap.elbow_move_to_z_position(250.0)
+    head = self.iswap.resource
+    moves = [r["moves"][0] for r in self.requests if r["kind"] == "iswap_move"]
+    along_y, along_z = moves[-2], moves[-1]
+    self.assertEqual((along_y["axis"], along_z["axis"]), (1, 2))
+    self.assertAlmostEqual(along_y["to"], head.location.y, delta=0.05)
+    self.assertAlmostEqual(along_z["to"], head.location.z, delta=0.05)
+    self.assertGreater(along_y["speed"], 0)
+
+  async def test_a_joint_turns_to_the_rotation_the_model_gives_it(self):
+    await self.iswap.elbow_move_to_y_position(self.parked - 200.0)
+    await self.iswap.rotate_to_angles(elbow_absolute_angle="front", gripper_absolute_angle="left")
+    turns = {t["name"]: t for t in self.last("iswap_turn")["turns"]}
+    for resource in (self.iswap.link_1, self.iswap.gripper):
+      turn = turns[resource.name]
+      self.assertAlmostEqual((turn["drive"] - turn["base"]) % 360, resource.rotation.z % 360, 3)
+      self.assertEqual(turn["pivot"]["x"], resource.proximal_joint.x)
+      self.assertGreater(turn["speed"], 0)
+
+  async def test_the_fingers_stand_where_the_model_stands_them(self):
+    await self.iswap.gripper_move_to_jaw_position(90.0)
+    jaws = self.last("iswap_jaws")["jaws"]
+    for finger, target in zip(self.iswap.gripper.fingers, jaws["fingers"]):
+      self.assertEqual(target["name"], finger.name)
+      self.assertAlmostEqual(target["y"], finger.location.y, delta=0.01)
+    self.assertEqual(jaws["gripper"], self.iswap.gripper.name)
+
+
+class ISWAPServerTests(unittest.IsolatedAsyncioTestCase):
+  async def test_a_move_the_model_records_first_is_played_before_it_is_told(self):
+    """The iSWAP writes a move's target before sending it. Told first, the page would put the head
+    at the end of the move and have nothing left to play."""
+    facility, star = await simulated_star(self)
+    fs_port, ws_port = free_ports(2)
+    viewer = Viewer3D(facility, open_browser=False, fs_port=fs_port, ws_port=ws_port)
+    await viewer.start()
+    self.addAsyncCleanup(viewer.stop)
+    viewer.attach_motion(star.driver)
+    await star.iswap.make_space()
+    y = await star.iswap.elbow_request_y_position()
+    page = await FakePage(viewer, 0.05).open()
+    self.addAsyncCleanup(page.close)
+    head = f"at:{star.iswap.resource.name}"
+    before = len(page.events)
+    await star.iswap.elbow_move_to_y_position(y - 100.0)
+    for _ in range(100):
+      if head in page.events[before:]:
+        break
+      await asyncio.sleep(0.02)
+    after = page.events[before:]
+    self.assertIn("motion", after)
+    self.assertIn(head, after)
+    self.assertLess(after.index("motion"), after.index(head), after)
 
 
 @unittest.skipUnless(NODE, "no Node to run the player's tests")

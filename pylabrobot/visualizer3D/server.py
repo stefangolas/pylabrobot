@@ -153,6 +153,19 @@ def _signature(cleaned: Dict[str, Any], key: str) -> str:
   return key + repr([round(v, STATE_DECIMALS) for v in _xyz(cleaned["location"])])
 
 
+def _moved_names(request: Dict[str, Any]) -> Set[str]:
+  """Every resource a motion moves."""
+  names: Set[str] = set()
+  if request.get("arm"):
+    names.add(request["arm"]["name"])
+  for key in ("channels", "traverse", "moves", "turns"):
+    names.update(entry["name"] for entry in request.get(key) or [])
+  jaws = request.get("jaws")
+  if jaws:
+    names.update(finger["name"] for finger in jaws["fingers"])
+  return names
+
+
 class Viewer3D:
   """A visualizer that takes any resource as its world.
 
@@ -640,6 +653,11 @@ class Viewer3D:
     # A change is handed to the loop to be queued, so let what the last command changed reach the
     # page first: a motion starts from where the page has everything.
     await asyncio.sleep(0)
+    # Except where this very command has already been written: the iSWAP records a move's target as
+    # it sends it. Sent now, that would put the part at the end of the move before it is played, so
+    # it is held until the pages have played the move there. Taken before anything else can flush.
+    moving = _moved_names(request)
+    held = {name: self._pending.pop(name) for name in list(self._pending) if name in moving}
     # A change of shape - a tip taken onto a shaft - waits out its debounce, and holds the
     # positions back with it; the command that caused it is over, so it goes now.
     if self._scene_timer is not None:
@@ -658,12 +676,17 @@ class Viewer3D:
       # A page that could not be sent to has been dropped, and will not answer.
       pages.intersection_update(self._clients)
       if not pages:
-        return
+        played.set_result(None)
       await asyncio.wait_for(asyncio.shield(played), self.MOTION_TIMEOUT_S)
     except asyncio.TimeoutError:
       print(f"viewer: no page played {module}{command} within {self.MOTION_TIMEOUT_S} s; going on")
     finally:
       self._motions.pop(motion_id, None)
+      if held:
+        # Anything newer that arrived meanwhile has the last word.
+        for name, state in held.items():
+          self._pending.setdefault(name, state)
+        await self._flush()
 
   def _on_motion_played(self, websocket: Any, message: Any) -> bool:
     """Take a page's word that it has played a motion; whether the message was that."""
