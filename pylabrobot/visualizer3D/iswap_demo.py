@@ -1,4 +1,4 @@
-"""The iSWAP carrying a plate between two carrier sites, acted out between the commands.
+"""The iSWAP carrying a lidded plate between two carrier sites, and taking its lid off and on.
 
 Run it:
 
@@ -6,8 +6,11 @@ Run it:
 
 The arm is driven only by the PR's primitive moves - the X-arm, the head's Y and Z, the two joints
 and the jaws - each of which the page plays at the speed the command carries. PyLabRobot does not
-move a gripped plate, so the page does: it hands the plate to the gripper when the jaws close on it
-and to the site under it when they open. Until stopped, the plate goes over and comes back.
+move what the iSWAP grips, so the page does: it hands the labware to the gripper when the jaws close
+on it and to what is under it when they open - a site, or for a lid, a plate with no lid.
+
+Until stopped: the plate goes over with its lid, the lid comes off onto the empty site, goes back
+on, and the plate comes back.
 """
 
 import asyncio
@@ -15,15 +18,20 @@ import logging
 from typing import List
 
 from pylabrobot.resources.coordinate import Coordinate
+from pylabrobot.resources.corning.plates import cor_96_wellplate_360uL_Fb_lid
+from pylabrobot.resources.lid import Lid
 from pylabrobot.resources.plate import Plate
 from pylabrobot.resources.resource import Resource
 
 from .demo import build_facility, star_of
 from .server import Viewer3D
 
-# How far above a plate's bottom the jaws take hold of it, in mm.
-GRIP_HEIGHT = 7.0
-# How much narrower than the plate the jaws close to, in mm: they stop on it.
+# How far above a plate's bottom the jaws take hold of it, in mm: below where its lid comes down
+# over it, or they would close on the lid.
+PLATE_GRIP_HEIGHT = 4.0
+# How far above a lid's bottom the jaws take hold of it, in mm.
+LID_GRIP_HEIGHT = 5.0
+# How much narrower than what they hold the jaws close to, in mm: they stop on it.
 SQUEEZE = 3.0
 
 
@@ -51,12 +59,12 @@ async def move_grip_centre(iswap, deck: Resource, target: Coordinate, axes: str)
     await iswap.elbow_move_to_z_position(round(z + offset.z, 1))
 
 
-async def carry(iswap, deck: Resource, plate: Plate, here: Coordinate, there: Coordinate, travel_z):
-  """Take the plate whose grip point is `here` to `there`, travelling at `travel_z`."""
+async def carry(iswap, deck: Resource, width: float, here: Coordinate, there: Coordinate, travel_z):
+  """Take what is `width` wide and gripped at `here` to `there`, travelling at `travel_z`."""
   await iswap.gripper_open()
   await move_grip_centre(iswap, deck, Coordinate(here.x, here.y, travel_z), "xy")
   await move_grip_centre(iswap, deck, here, "z")
-  await iswap.gripper_move_to_jaw_position(plate.get_size_y() - SQUEEZE)
+  await iswap.gripper_move_to_jaw_position(width - SQUEEZE)
   await move_grip_centre(iswap, deck, Coordinate(here.x, here.y, travel_z), "z")
   await move_grip_centre(iswap, deck, Coordinate(there.x, there.y, travel_z), "xy")
   await move_grip_centre(iswap, deck, there, "z")
@@ -64,10 +72,28 @@ async def carry(iswap, deck: Resource, plate: Plate, here: Coordinate, there: Co
   await move_grip_centre(iswap, deck, Coordinate(there.x, there.y, travel_z), "z")
 
 
-def grip_point(site: Resource, plate: Plate, deck: Resource) -> Coordinate:
-  """Where the jaws close on `plate` standing on `site`: its middle, `GRIP_HEIGHT` up."""
+def surface(site: Resource, deck: Resource) -> Coordinate:
+  """The middle of a site's surface, in mm on the deck."""
+  return site.get_location_wrt(deck, "c", "c", "b")
+
+
+def plate_grip(site: Resource, plate: Plate, deck: Resource) -> Coordinate:
+  """Where the jaws close on `plate` standing on `site`."""
   seated = plate.location.z if plate.location is not None else 0.0
-  return site.get_location_wrt(deck, "c", "c", "b") + Coordinate(0, 0, seated + GRIP_HEIGHT)
+  return surface(site, deck) + Coordinate(0, 0, seated + PLATE_GRIP_HEIGHT)
+
+
+def lid_grip_on_plate(site: Resource, plate: Plate, lid: Lid, deck: Resource) -> Coordinate:
+  """Where the jaws close on `lid` covering `plate` on `site`: its bottom is the plate's top less
+  the height it nests over it."""
+  seated = plate.location.z if plate.location is not None else 0.0
+  bottom = seated + plate.get_size_z() - lid.nesting_z_height
+  return surface(site, deck) + Coordinate(0, 0, bottom + LID_GRIP_HEIGHT)
+
+
+def lid_grip_on_site(site: Resource, deck: Resource) -> Coordinate:
+  """Where the jaws close on a lid lying on an empty `site`."""
+  return surface(site, deck) + Coordinate(0, 0, LID_GRIP_HEIGHT)
 
 
 async def main() -> None:
@@ -75,17 +101,18 @@ async def main() -> None:
   facility = build_facility()
   star = star_of(facility)
   deck = star.deck
-  # An empty site to carry a plate to.
+  # An empty site to carry the plate to.
   deck.get_resource("destination_1").unassign()
+  plate = deck.get_resource("source_1")
+  assert isinstance(plate, Plate) and plate.parent is not None
+  lid = cor_96_wellplate_360uL_Fb_lid(name="source_1_lid")
+  plate.assign_child_resource(lid)
   await star.setup()
   iswap = star.iswap
   if iswap is None:
     raise RuntimeError("the simulated STARlet has no iSWAP")
 
-  plate = deck.get_resource("source_1")
-  assert isinstance(plate, Plate) and plate.parent is not None
   sites: List[Resource] = [plate.parent, deck.get_resource("destination_carrier").children[1]]
-  points = [grip_point(site, plate, deck) for site in sites]
 
   viewer = Viewer3D(facility, name="iswap_demo.py")
   await viewer.start()
@@ -101,12 +128,36 @@ async def main() -> None:
   await iswap.elbow_move_to_y_position(parked - 200.0)
   await iswap.rotate_to_angles(elbow_absolute_angle="front", gripper_absolute_angle="left")
 
-  trip = 0
+  width = plate.get_size_y()
+  lid_width = lid.get_size_y()
   while True:
-    here, there = points[trip % 2], points[(trip + 1) % 2]
-    print(f"trip {trip + 1}: {'over' if trip % 2 == 0 else 'back'}")
-    await carry(iswap, deck, plate, here, there, travel_z)
-    trip += 1
+    start, other = sites
+    print("the plate goes over, with its lid")
+    await carry(
+      iswap, deck, width, plate_grip(start, plate, deck), plate_grip(other, plate, deck), travel_z
+    )
+    print("its lid comes off, onto the site it left")
+    await carry(
+      iswap,
+      deck,
+      lid_width,
+      lid_grip_on_plate(other, plate, lid, deck),
+      lid_grip_on_site(start, deck),
+      travel_z,
+    )
+    print("and goes back on")
+    await carry(
+      iswap,
+      deck,
+      lid_width,
+      lid_grip_on_site(start, deck),
+      lid_grip_on_plate(other, plate, lid, deck),
+      travel_z,
+    )
+    print("the plate comes back")
+    await carry(
+      iswap, deck, width, plate_grip(other, plate, deck), plate_grip(start, plate, deck), travel_z
+    )
     await asyncio.sleep(1.0)
 
 

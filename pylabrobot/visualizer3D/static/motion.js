@@ -12,7 +12,7 @@
 
 import * as THREE from "three";
 
-import { heldAt, MOVABLE, SITES, siteUnder } from "./carry.js";
+import { heldAt, LIDDABLE, MOVABLE, SITES, siteUnder } from "./carry.js";
 import { worldBox } from "./drawn.js";
 import { readAxis, reattach, setAxis, turnTo } from "./live.js";
 import { createPlayer } from "./motion_player.js";
@@ -46,7 +46,23 @@ function release(gripper) {
   held.delete(gripper);
   const index = name === undefined ? undefined : world.indexOfName.get(name);
   if (index === undefined) return;
-  const site = siteUnder(worldBox(index), candidates(SITES), index);
+  const model = modelOf(index);
+  const lid = model.category === "lid";
+  const seats = candidates(lid ? new Set([...SITES, ...LIDDABLE]) : SITES).map((c) =>
+    LIDDABLE.has(c.category)
+      ? {
+          ...c,
+          covered: world.childrenOf[c.index].some(
+            (child) => child !== index && modelOf(child).category === "lid",
+          ),
+        }
+      : c,
+  );
+  const site = siteUnder(worldBox(index), seats, {
+    index,
+    category: model.category,
+    nesting: model.nesting_z_height,
+  });
   // Nothing under it: it stays where it was let go of.
   reattach(name, site === undefined ? null : world.names[site]);
 }

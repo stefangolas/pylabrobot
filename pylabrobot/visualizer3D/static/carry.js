@@ -2,7 +2,9 @@
 //
 // PyLabRobot does not move a plate when the iSWAP grips it, so the page does: the plate is handed to
 // the gripper when the jaws close on it, rides the arm, and is handed to the site under it when they
-// open. Pure - it is given boxes, not the scene - so it can be checked outside a page.
+// open. A lid is labware like any other, except that what takes it can be a plate: set down on one
+// with no lid, it becomes that plate's lid, as `Plate.assign_child_resource` makes it. Pure - it is
+// given boxes, not the scene - so it can be checked outside a page.
 
 // What an arm picks up: labware, not what labware holds or what holds it.
 export const MOVABLE = new Set([
@@ -17,6 +19,10 @@ export const MOVABLE = new Set([
 // What a plate is set down on.
 export const SITES = new Set(["resource_holder", "plate_holder", "plate_adapter"]);
 
+// What a lid is set down on besides a site: a plate that has none, its bottom `nesting_z_height`
+// below the plate's top.
+export const LIDDABLE = new Set(["plate"]);
+
 // How far a point may lie outside a box and still be taken as in it, in mm.
 const REACH = 2;
 // How far above a site a plate may be let go of and still land on it, in mm.
@@ -30,6 +36,7 @@ const SUNK = 10;
  * @property {number} index
  * @property {string} category
  * @property {{min: {x: number, y: number, z: number}, max: {x: number, y: number, z: number}}} box
+ * @property {boolean} [covered] a plate that already has a lid
  */
 
 const inside = (p, box, pad) =>
@@ -64,31 +71,38 @@ export function heldAt(point, candidates) {
 }
 
 /**
- * The site a plate let go of lands on: the highest one under its middle whose surface is near its
- * bottom - a little above it, as a skirt sits down into a site, or a drop's height below it.
+ * What something let go of lands on: the highest seat under its middle that is near its bottom - a
+ * little above it, as a skirt sits down into a site, or a drop's height below it. A site's seat is
+ * its surface; for a lid, a plate with no lid is a seat too, `nesting` below the plate's top.
  *
- * @param {{min: {x: number, y: number, z: number}, max: {x: number, y: number, z: number}}} box the
- *   plate's, in world mm
+ * @param {{min: {x: number, y: number, z: number}, max: {x: number, y: number, z: number}}} box
+ *   what was let go of, in world mm
  * @param {Candidate[]} candidates
- * @param {number} [self] the plate's own index, which is not a site for itself
+ * @param {{index?: number, category?: string, nesting?: number}} [released] what was let go of:
+ *   not a seat for itself, and a lid when its category says so
  * @returns {number | undefined}
  */
-export function siteUnder(box, candidates, self) {
+export function siteUnder(box, candidates, released = {}) {
+  const lid = released.category === "lid";
   const middle = { x: (box.min.x + box.max.x) / 2, y: (box.min.y + box.max.y) / 2 };
   let best;
   let highest = Number.NEGATIVE_INFINITY;
   for (const c of candidates) {
-    if (c.index === self || !SITES.has(c.category)) continue;
+    if (c.index === released.index) continue;
     const b = c.box;
+    let seat;
+    if (SITES.has(c.category)) seat = b.max.z;
+    else if (lid && LIDDABLE.has(c.category) && !c.covered)
+      seat = b.max.z - (released.nesting ?? 0);
+    else continue;
     const under =
       middle.x >= b.min.x - REACH &&
       middle.x <= b.max.x + REACH &&
       middle.y >= b.min.y - REACH &&
       middle.y <= b.max.y + REACH;
-    const top = b.max.z;
-    if (!under || top > box.min.z + SUNK || top < box.min.z - DROP) continue;
-    if (top > highest) {
-      highest = top;
+    if (!under || seat > box.min.z + SUNK || seat < box.min.z - DROP) continue;
+    if (seat > highest) {
+      highest = seat;
       best = c.index;
     }
   }

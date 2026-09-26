@@ -303,7 +303,39 @@ test("a plate let go of lands on the site under it", () => {
     { index: 6, category: "plate_holder", box: box(200, 0, 40, 327, 86, 40) },
   ];
   // The skirt sits 3 mm into the site: its surface stands above the plate's bottom.
-  assert.equal(siteUnder(plate, sites, 9), 5);
+  assert.equal(siteUnder(plate, sites, { index: 9, category: "plate" }), 5);
   // Carried away from any site, it has none.
-  assert.equal(siteUnder(box(600, 0, 97, 728, 85, 111), sites, 9), undefined);
+  assert.equal(siteUnder(box(600, 0, 97, 728, 85, 111), sites, { index: 9 }), undefined);
+});
+
+// A plate 14.2 mm tall on a site at z 100, seated 3 mm into it, and its lid, 8.9 mm tall, nesting
+// 7.6 mm over it - the demo's Corning plate.
+const site = { index: 1, category: "plate_holder", box: box(0, 0, 100, 127, 86, 100) };
+const plateOn = (index, covered = false) => ({
+  index,
+  category: "plate",
+  covered,
+  box: box(0, 0, 97, 128, 85, 111.2),
+});
+const lidAt = (z) => box(0, 0, z, 128, 85, z + 8.9);
+const LID = { index: 7, category: "lid", nesting: 7.6 };
+
+test("the jaws take the lid at its height, and the plate below it", () => {
+  const candidates = [plateOn(2), { index: 7, category: "lid", box: lidAt(103.6) }];
+  assert.equal(heldAt({ x: 64, y: 43, z: 109 }, candidates), 7);
+  assert.equal(heldAt({ x: 64, y: 43, z: 101 }, candidates), 2);
+});
+
+test("a lid let go of over a plate with none becomes that plate's lid", () => {
+  // Where it sits on the plate: the plate's top less the nesting.
+  assert.equal(siteUnder(lidAt(103.6), [site, plateOn(2)], LID), 2);
+});
+
+test("a lid is not put on a plate that has one, nor is a plate put on a plate", () => {
+  assert.equal(siteUnder(lidAt(103.6), [site, plateOn(2, true)], LID), 1);
+  assert.equal(siteUnder(box(0, 0, 111, 128, 85, 125), [plateOn(2)], { category: "plate" }), undefined);
+});
+
+test("a lid let go of on an empty site lands on the site", () => {
+  assert.equal(siteUnder(lidAt(100), [site], LID), 1);
 });
