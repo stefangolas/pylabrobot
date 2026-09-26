@@ -8,12 +8,12 @@ out, and needs the command's targets to do it.
 model the drives, so the page can move them without knowing anything about firmware. A command that
 moves nothing, or one this does not read, returns None.
 
-Everything here comes from the driver or from the command itself, with one exception: the driver
-states no speed or acceleration for the X-arm, so X moves at the threejs visualizer's rate.
+Everything here comes from the driver or from the command itself, with two exceptions the driver
+does not state, fitted instead from a STAR's own command timings: the X-arm's speed, acceleration and
+jerk (it moves on an S-curve), and the channels' Y acceleration.
 
 - Channel Y and Z speeds, and Z acceleration, are the channels' defaults (`Pipettes.default_*`).
-  Y is stated only as an acceleration level, not a rate, and the simulator times a Y move at its
-  speed alone, so Y moves at constant speed here too.
+  Y is stated only as an acceleration level, not a rate; its acceleration is fitted from traces.
 - The stroke of a tip command is the one the simulator records (`_record_tip_command`): across, with
   the arm and the channels moving at once, down onto the spots, and back up.
 - An aspiration dwells for as long as its own volume and flow rate say, plus its settling time, and
@@ -34,10 +34,17 @@ from typing import Any, Dict, List, Optional, Sequence
 from pylabrobot.resources.coordinate import Coordinate
 from pylabrobot.resources.tip_rack import TipSpot, resting_location
 
-# The driver states no X speed or acceleration; these are the threejs visualizer's, in mm/s and
-# mm/s^2.
-X_SPEED = 400.0
-X_ACCELERATION = 500.0
+# The driver states no X speed or acceleration: these are fitted to a STAR's own timings, from 2.56
+# million command/reply pairs in Venus HxUsbComm traces (`tools/hxusbcomm_timing.py`). The X-arm is
+# jerk-limited: an S-curve fits within-group R^2 0.976 against a trapezoid's 0.945 (delta AIC 72.7, 15 groups).
+# Jerk is well determined; speed and acceleration less so (anything above ~450 mm/s and ~1100 mm/s^2
+# fits nearly as well), since few recorded moves are long enough to cruise.
+X_SPEED = 600.0  # mm/s
+X_ACCELERATION = 1297.0  # mm/s^2
+X_JERK = 3210.0  # mm/s^3
+# Channel Y is stated only as an acceleration level, not a rate. Single-channel Y jogs in the same
+# traces (`C0 KY`, 1/10/100 mm) fit a trapezoid at this acceleration within 5 ms; jerk adds nothing.
+CHANNEL_Y_ACCELERATION = 900.0  # mm/s^2
 
 # How close a command's position has to be to a tip spot's centre to be taken as that spot, in mm.
 SPOT_TOLERANCE = 1.0
@@ -165,8 +172,8 @@ class _Frames:
   def drives(self) -> Dict[str, Dict[str, Optional[float]]]:
     p = self.pipettes
     return {
-      "x": {"speed": X_SPEED, "acceleration": X_ACCELERATION},
-      "y": {"speed": p.default_y_speed, "acceleration": None},
+      "x": {"speed": X_SPEED, "acceleration": X_ACCELERATION, "jerk": X_JERK},
+      "y": {"speed": p.default_y_speed, "acceleration": CHANNEL_Y_ACCELERATION},
       "z": {"speed": p.default_z_speed, "acceleration": p.default_z_acceleration},
     }
 
@@ -668,7 +675,7 @@ class _HeadFrames:
   def drives(self) -> Dict[str, Dict[str, Optional[float]]]:
     c = self.head.configuration
     return {
-      "x": {"speed": X_SPEED, "acceleration": X_ACCELERATION},
+      "x": {"speed": X_SPEED, "acceleration": X_ACCELERATION, "jerk": X_JERK},
       "y": {"speed": c.y_drive_speed_default, "acceleration": c.y_drive_acceleration_default},
       "z": {"speed": c.z_drive_speed_default, "acceleration": c.z_drive_acceleration_default},
     }

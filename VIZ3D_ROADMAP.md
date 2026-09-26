@@ -33,7 +33,7 @@ Alongside, three pieces the motion work needed and which are useful on their own
 ### Principles
 1. **The resource model is the truth.** Animation is derived; the harness fails any run whose drawing does not end where the model is.
 2. **Use a command's own parameters first.** Speeds, heights and targets come from the firmware parameters. Driver defaults come second, and a heuristic only when neither exists, marked as such.
-3. **Every non-obvious number has a source.** Tags: FW / PLR / SIM / DOC / HEUR (section 6).
+3. **Every non-obvious number has a source.** Tags: FW / PLR / SIM / FIT / DOC / HEUR (section 6). FIT means fitted to a real STAR's own firmware timings (`tools/hxusbcomm_timing.py`, `MOTION_PROFILES.md` section 8).
 4. **Fixed, known-safe heights.** Travel heights never depend on what is on the deck. Collisions are checked separately, never avoided by computing a height from the deck.
 5. **Headless verification**, generically: a harness asserts smoothness, stray motion, snaps and arrivals for any scenario.
 
@@ -99,6 +99,7 @@ Findings recorded along the way:
 | 4.11 | Park `C0 PG`, autoload, initialisation | Undocumented; heuristic, marked | — |
 | 4.12 | Model validator (spatial facts with sources; AI-drafted parametric models, e.g. the 96-head) | Proposal (earlier notes, section 10a) | 3.9 |
 | 4.13 | Validation on hardware: transport ordering, CO-RE X fix, timing | Needs a STAR | — |
+| 4.15 | More trace fits: channel and 96-head Y/Z over many distances, the iSWAP's compound commands against their parameters, per-command overheads on the page, and the X/Z overlap in tip commands | Measured, not guessed. Medium | `tools/hxusbcomm_timing.py` |
 | 4.14 | Reconcile failed commands: on an error answer, stop the motion and move (not jump) to the position read back; test with injected simulator errors | The page animates intent before the answer. Small–medium | 4.4 |
 
 ---
@@ -115,7 +116,7 @@ Findings recorded along the way:
 4. **Plan plate moves from primitives instead of compound commands.** The firmware's `C0 PP/PR/PM` "choos[es] among multiple valid poses unpredictably" ([discuss.pylabrobot.org/t/517/1](https://discuss.pylabrobot.org/t/intro-to-epic-tame-the-iswap/517/1)), and their internal motion isn't public. Planning in Python makes every step visible, overridable and drawable, and the tree can be updated exactly when the jaws grip and release.
 5. **One fixed travel height; collisions checked, never avoided by computing heights.** A height worked out from the deck hides collisions instead of reporting them, and it makes motion depend on what happens to be on the deck. The iSWAP travels at its own `default_minimum_traverse_height` (284 mm). Collision checking is a separate pass that reports.
 6. **Only moving things are checked against still ones, with convex sweeps.** No all-against-all checks. Straight moves and moves on independent axes are swept exactly as convex hulls. Turns are cut into arcs, each grown by a proven curvature bound (|p''| ≤ Δe²|a| + (Δe+Δw)²|b|, deviation ≤ max|p''|/8), which gave ≈30× fewer segments than a naive bound. Two moving groups are compared only over shared time slices.
-7. **The page's speed profile matches the simulator's timing model** (a symmetric trapezoid, `SimulatedPipettes._get_travel_time`). The drawing and the simulated clock agree. The real drives' ramp shape isn't public.
+7. **Motion profiles are fitted to the machine where PLR doesn't state them.** Most drives use the simulator's symmetric trapezoid (`SimulatedPipettes._get_travel_time`), which the channels' Y and Z jogs confirm. The X-arm uses a jerk-limited S-curve fitted to 2.56 million timed firmware commands: within-group R² 0.976 and RMS 23.4 ms (about 1.4 frames at 60 fps), against a trapezoid's 0.945 and 35.5 ms, ΔAIC 72.7. A single shared fixed delay is decisively rejected. Firmware traces turned the one unsourced motion number into a measured one.
 8. **Handovers seat instead of snapping.** A tip changes parent where it stands, then moves to where the model will place it at the Z drive's pace. The small geometric difference between the stroke's bottom and the model's placement becomes motion, not a jump.
 9. **Solids come from the tree by rule, not by list.** A leaf is solid. An itemized resource is solid whole. Something hanging outside its parent is solid. A frame (children inside it) is solid only below the lowest thing it holds. Enclosures are declared (`hollow`). This handles decks, carriers, arms and tools without per-type tables, at the cost of box-level fidelity (see 4.12).
 
@@ -135,7 +136,8 @@ Values the page takes from commands and driver defaults (channel speeds, head an
 ### 6.1 Motion (decoder, player, server)
 | Constant | Value | File | Tag | Source / justification |
 |---|---|---|---|---|
-| `X_SPEED`, `X_ACCELERATION` | 400 mm/s, 500 mm/s² | `motion.py` | HEUR | The v1 driver states no X rate (only an acceleration level); threejs_visualizer's values. |
+| `X_SPEED`, `X_ACCELERATION`, `X_JERK` | 600 mm/s, 1297 mm/s², 3210 mm/s³ | `motion.py` | FIT | S-curve fitted to HxUsbComm traces (15 groups; R² 0.976, RMS 23.4 ms; ΔAIC 72.7 vs trapezoid). `MOTION_PROFILES.md` 8.1. |
+| `CHANNEL_Y_ACCELERATION` | 900 mm/s² | `motion.py` | FIT | Single-channel Y jogs fit a trapezoid at this acceleration (RMS 4.7 ms). The driver states only a level. `MOTION_PROFILES.md` 8.2. |
 | `SPOT_TOLERANCE` | 1.0 mm | `motion.py` | HEUR | Matching a command's XY to a tip spot: well above the 0.1 mm firmware resolution, far below the 9 mm pitch. |
 | `TIP_DROP` | 1 | `motion.py` | FW / PLR | `ti=1` is DROP (`TipDropMethod`); DROP heights are the stop disc's (`_unchecked_fw_drop_tips` docstring). |
 | Finger speed | half the jaw drive's | `motion.py` `_jaws` | derived | Symmetric jaws: each finger travels half the width change in the same time. |
@@ -220,6 +222,7 @@ The branch history grew as work went on, so several files were touched by severa
 | B6 | CO-RE `C0 ZT/ZS` decoders | `motion.py` (CO-RE part), a smoothness scenario | B3, A2 | ~80 |
 | B7 | Smoothness harness | `smoothness.py`, `smoothness_page.mjs`, `smoothness_tests.py` (scenarios for B3–B6; transport scenarios after A7) | B3 | ~1000 |
 | B8 | Start view and framing | `static/renderer.js`, `static/app.js` (`sceneBounds`) | — | ~30 |
+| B12 | Trace timing fits: `tools/hxusbcomm_timing.py`; the S-curve in `motion_profile.js` (+ tests); the fitted X and Y values in `motion.py`; `MOTION_PROFILES.md` section 8 | `tools/hxusbcomm_timing.py`, `static/motion_profile.js`, `motion_player_tests.mjs`, `motion.py` constants, docs | B2, B3 | ~550 |
 | B9 | Models and importer | `visualizer3D/glb.py`, `glb_tests.py`, `tools/import_glb.py`, 3 GLBs, `pyproject.toml` glob | — | ~290 + binaries |
 | B10 | Demos | `motion_demo.py`, `iswap_demo.py`, `transport_demo.py` | B3–B6, A7 | ~310 |
 | B11 | Motion reference | `MOTION_PROFILES.md` | B3–B6 | doc |

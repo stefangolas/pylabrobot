@@ -357,3 +357,40 @@ test("a tip is handed over where it stands, then seated where the model gives it
   const seating = world.log.filter((e) => e.name === "tip" && e.axis === 2).map((e) => e.value);
   assert.ok(seating.length > 2, "the tip jumped to its seat instead of moving there");
 });
+
+// -- the jerk-limited profile -----------------------------------------------------------------------
+
+test("an S-curve takes as long as the fitted X-arm model says, short moves and long", () => {
+  // Reference durations from `tools/hxusbcomm_timing.py`'s `move_time` at the fitted X-arm limits.
+  const expected = { 1: 0.21522, 10: 0.463676, 100: 0.99896, 500: 1.709912 };
+  for (const [d, t] of Object.entries(expected)) {
+    const { duration } = motionProfile(Number(d), 600, 1297, 3210);
+    assert.ok(Math.abs(duration - t) < 1e-4, `${d} mm: ${duration} s, expected ${t} s`);
+  }
+});
+
+test("an S-curve starts and ends at rest, climbs monotonically and is symmetric", () => {
+  for (const d of [1, 10, 100, 500]) {
+    const { duration, progress } = motionProfile(d, 600, 1297, 3210);
+    assert.equal(progress(0), 0);
+    assert.equal(progress(duration), 1);
+    let last = 0;
+    const n = 200;
+    for (let k = 1; k <= n; k++) {
+      const p = progress((duration * k) / n);
+      assert.ok(p >= last - 1e-12, `${d} mm goes backwards at step ${k}`);
+      last = p;
+    }
+    // Rest to rest, mirrored: as far in at a quarter as short of the end at three quarters.
+    assert.ok(Math.abs(progress(duration / 4) - (1 - progress((3 * duration) / 4))) < 1e-9);
+    // And it starts gently: jerk-limited, so the first hundredth covers far less than a hundredth.
+    assert.ok(progress(duration / 100) < 0.001);
+  }
+});
+
+test("without a jerk the profile is the simulator's trapezoid", () => {
+  const withNone = motionProfile(100, 250, 800);
+  const withInfinite = motionProfile(100, 250, 800, Number.POSITIVE_INFINITY);
+  assert.ok(Math.abs(withNone.duration - (100 / 250 + 250 / 800)) < 1e-9);
+  assert.equal(withInfinite.duration, withNone.duration);
+});

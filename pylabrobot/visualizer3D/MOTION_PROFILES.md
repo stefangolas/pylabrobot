@@ -9,6 +9,7 @@ order) or has none. Each value is tagged with its source:
 | **FW** | Carried by the command itself: the page plays what the device was told. |
 | **PLR** | A value or model in PyLabRobot's code: a driver constant, a configuration, or the resource model. Cited by file and symbol. |
 | **SIM** | How PLR's STAR simulator records the command (`hamilton/star/driver/simulator.py`). This is PLR's own model of the motion, not a documented firmware sequence. |
+| **FIT** | Fitted to a real STAR's own command timings: every firmware request and reply, millisecond-stamped, from Venus HxUsbComm traces. Reproducible with `tools/hxusbcomm_timing.py`; data and statistics in section 8. |
 | **DOC** | External documentation or a forum post, linked to the post. labautomation.io posts by Hamilton staff are treated as authoritative. |
 | **HEUR** | Our choice, with no documented reference. The justification is given. |
 
@@ -22,7 +23,7 @@ the player is `static/motion_player.js` (the page, plays targets in phases); the
 
 | Choice | Value | Tag | Source / justification |
 |---|---|---|---|
-| Speed profile of a single move | Symmetric trapezoid: accelerate, cruise, decelerate; a triangle if too short to reach cruise; constant speed when no acceleration is known | SIM | Same timing model as the simulator: `SimulatedPipettes._get_travel_time` (`simulator.py`) takes d/v + v/a, or 2√(d/a) as a triangle. Page: `motionProfile` in `static/motion_profile.js` (it also came from threejs_visualizer's `calculateMotionProfile`). The real drives' ramp shape (e.g. S-curve jerk limits) is not public. |
+| Speed profile of a single move | Symmetric trapezoid (a triangle if too short to cruise; constant speed with no acceleration), except the X-arm, which moves on a jerk-limited S-curve | SIM + FIT | Trapezoid: the simulator's timing model, `SimulatedPipettes._get_travel_time` (`simulator.py`). S-curve for X: the traces reject a trapezoid for the X-arm (section 8.1). Page: `motionProfile(distance, speed, acceleration, jerk)` in `static/motion_profile.js`. |
 | Moves that happen at once | Drives in the same phase start together, and the phase ends with the slowest | SIM | `owe_motion_time`: "the drives move at once, so a command takes as long as its slowest axis" (`simulator.py`). |
 | Smallest move played | 0.05 mm (`STILL`); anything smaller is skipped | HEUR | Below the 0.1 mm firmware resolution; avoids zero-length tweens. |
 | Model arrivals | After each motion, the model's own update must find the page already there (0.11 mm / 0.11° tolerance in the harness) | PLR + HEUR | The model is the source of truth (PLR). The tolerance is ours: `ARRIVAL_MM` / `ARRIVAL_DEG` in `smoothness_page.mjs`, just above the firmware's 0.1 mm resolution. Enforced by `smoothness.py`'s `assert_smooth`. |
@@ -34,8 +35,8 @@ the player is `static/motion_player.js` (the page, plays targets in phases); the
 
 | Drive | Speed | Acceleration | Tag | Source |
 |---|---|---|---|---|
-| X-arm | 400 mm/s | 500 mm/s² | HEUR | The v1 driver states neither. These are threejs_visualizer's values (`X_SPEED`, `X_ACCELERATION`, `motion.py`). Firmware X commands carry only an acceleration *level*. |
-| Channel Y | 250 mm/s | none (constant speed) | PLR + HEUR | Speed: `Pipettes.default_y_speed`. The firmware states Y acceleration only as a level (1–4, `default_y_acceleration_level = 3`), not a rate, and the simulator times Y at constant speed, so the page does too. |
+| X-arm | 600 mm/s | 1297 mm/s², jerk 3210 mm/s³ | FIT | `X_SPEED`, `X_ACCELERATION`, `X_JERK` (`motion.py`). The driver states no X rate; firmware X commands carry only an acceleration *level*. Section 8.1: S-curve within-group R² 0.976, RMS 23.4 ms, ΔAIC 72.7 over a trapezoid. Jerk is well determined; speed and acceleration less so. |
+| Channel Y | 250 mm/s | 900 mm/s² | PLR + FIT | Speed: `Pipettes.default_y_speed`. Acceleration: `CHANNEL_Y_ACCELERATION` (`motion.py`). The firmware states Y acceleration only as a level (1–4, `default_y_acceleration_level = 3`); single-channel Y jogs fit a trapezoid at ≈900 mm/s² (section 8.2). The simulator still times Y at constant speed. |
 | Channel Z | 125 mm/s | 800 mm/s² | PLR | `Pipettes.default_z_speed`, `Pipettes.default_z_acceleration`. |
 | 96-head Y / Z | the head's defaults | the head's defaults | PLR | `HeadConfiguration.y_drive_speed_default` / `z_drive_speed_default` and their accelerations (`features/head.py`): the value the firmware reports when read, else the configured default increments. |
 | iSWAP gripper, when a close states no speed | `gripper_close_speed_default_increments` (5000), converted | `gripper_acceleration_default_increments` (75), converted | PLR | `iSWAPConfiguration` (`features/iswap.py`). |
@@ -224,6 +225,62 @@ Channels stop at different heights at different moments.
 Reads (`R*`, `Q*`, `VW`), pressure-monitoring and sensor setup (`AC`, `AF`, `AN`, `AQ`, `BG`, `BH`), drive parameters (`AA`), brakes (`R0 BA/BO`), drive power (`X0 XO`, `R0 GO`), cover (`C0 CO/HO/CE/CD`), tip-type definition (`C0 TT`), master setup (`C0 UA`, `C0 VI`), and autoload sensing and barcode setup (`CQ`, `CS`, `CT`, `CB`, `CP`, `AR`, `AF`).
 
 ---
+
+## 8. Measured from firmware traces
+
+**Source:** Venus `HxUsbComm*.trc` logs from the Chory lab's STAR (266 files, 447 MB, Nov 2023 – Apr 2025; not in the repo). Every request (`<`) and reply (`>`) carries a millisecond timestamp. Pairing them by id gives 2,559,959 answered commands and how long each took. Arm-X reads (`C0 RX`, 744,966 of them) give where the arm was before most moves.
+
+**Reproduce:** `python tools/hxusbcomm_timing.py <trace folder> --max-mb 900 --out timing.json` on any Venus traces. It reads one file at a time, so memory stays flat.
+
+**How moves are isolated:** within a group of otherwise identical commands, time = overhead + move(distance), with one overhead per group.
+- Pure X jogs: `C0 JX`, and `C0 EM` when Y and Z are unchanged.
+- `C0 AS`/`DS` identical except for X, with the channels' Y unchanged from the previous command.
+- Single-channel Y and Z jogs: `C0 KY`, `C0 KZ`.
+- A move is measured only from a previous command that answered without error.
+
+### 8.1 The X-arm is jerk-limited
+15 groups:
+
+| Model | Parameters | RMS | Within-group R² | AIC | AICc | BIC |
+|---|---|---|---|---|---|---|
+| **S-curve, overhead per group** | v 600 mm/s, a 1297 mm/s², j 3210 mm/s³ | **23.4 ms** | **0.976** | **−639.6** | **−630.0** | **−594.6** |
+| Trapezoid, overhead per group | v 595 mm/s, a 605 mm/s² | 35.5 ms | 0.945 | −566.9 | −558.4 | −524.4 |
+| S-curve, one shared delay | — | 3818 ms | −635 | 249.1 | 249.6 | 259.1 |
+| Trapezoid, one shared delay | — | 3880 ms | −656 | 250.1 | 250.3 | 257.6 |
+
+- **Why a trapezoid can't fit:** in both pure jogs, going from 1 to 10 mm adds 0.30 s and from 10 to 100 mm adds 0.50 s (a ratio of 1.65). A trapezoid gives at least √10 ≈ 3.2 for any acceleration, even with a speed cap. A constant delay cancels in these differences, so it can't rescue the trapezoid.
+- **Sensitivity:** jerk is well determined (halving or doubling it roughly doubles the RMS). Speed and acceleration are loosely determined above ≈450 mm/s and ≈1100 mm/s², because few recorded moves are long enough to cruise.
+- **One shared delay is rejected:** the constant part of a command's time is specific to the command, not a single latency.
+
+### 8.2 Channel Y and Z are trapezoids
+
+| Axis | Jog data (distance: median time) | Fit |
+|---|---|---|
+| Channel Y (`C0 KY`) | 1 mm: 0.132 s (n20); 10 mm: 0.285 s (n63); 100 mm: 0.730 s (n1) | Trapezoid v ≈ 300 mm/s, a ≈ 900 mm/s², RMS 4.7 ms. Jerk improves it by < 1 ms (noise). |
+| Channel Z (`C0 KZ`) | 1 mm: 0.185 s (n139); 10 mm: 0.338 s (n39) | PLR's `default_z_acceleration` 800 mm/s² reproduces the 1→10 mm step to 0.1 ms. |
+
+Only three Y distances (one sample at 100 mm) and two Z distances exist, so mild jerk on Y or Z can't be ruled out.
+
+### 8.3 Other factors (documented; not yet used by the page)
+- **Communication round trip:** read replies arrive in ≈9–21 ms (median `X0 RF` 9 ms, `H0 RH` 7 ms, `C0 RX` 21 ms). This is the only delay common to all commands.
+- **Command overhead is command-specific.** For the same X move, the 96-head's `C0 EM` takes ≈0.36 s longer than a channel `C0 JX` (overheads ≈0.48 s vs ≈0.12 s after the fitted move time).
+- **In tip commands, short X moves overlap the Z stroke.** A `C0 TP` after a `C0 TR` takes 6.331 s for 9 mm and 6.335 s for 18 mm, where the X-arm alone needs ≈0.1 s more for the longer move. Above ≈20 mm the X distance shows again. The firmware appears to move X while Z is still travelling. The player runs the phases in sequence, so tip strokes are drawn slightly long for short moves.
+- **Reply times cluster on ≈50 ms steps** in some long commands (e.g. `C0 DS` at 4.10 / 4.15 / 4.20 s), which suggests the controller reports on a polling tick. It limits resolution for small effects.
+- **Command durations** (medians over all traces; these depend on each command's parameters, so they describe, they don't model):
+
+| Command | n | Median | Command | n | Median |
+|---|---|---|---|---|---|
+| `C0 AS` aspirate | 229,489 | 6.41 s | `C0 PP` iSWAP get plate | 50,365 | 6.76 s |
+| `C0 DS` dispense | 218,050 | 5.00 s | `C0 PR` iSWAP put plate | 47,743 | 6.05 s |
+| `C0 TP` tip pick-up | 55,084 | 6.18 s | `C0 PG` iSWAP park | 11,839 | 7.62 s |
+| `C0 TR` tip drop | 55,088 | 8.02 s | `C0 EA` / `C0 ED` 96-head aspirate / dispense | 49,616 / 48,950 | 7.75 / 6.11 s |
+| `C0 EP` / `C0 ER` 96-head tips | 5,965 / 5,967 | 8.82 / 7.46 s | `C0 RX` read arm X | 744,966 | 0.021 s |
+
+### 8.4 Next fits the same data supports
+- Channel and 96-head Y and Z over many distances, from aspirates and dispenses that differ only in Y or Z. This would settle jerk on those axes.
+- iSWAP get/put/park against their parameters. `C0 PP`, `PR` and `PG` are black boxes, but 110k timed examples with positions constrain their internal phases.
+- Per-command overheads for the page, so a drawn command takes as long as the real one.
+- The X/Z overlap in tip commands, as a phase overlap in the player.
 
 ## 7. Liquid, as drawn (not a firmware command)
 A vessel's cavity is tinted from white to orange by volume ÷ capacity, stepping to 35% for any liquid at all (PR #1378 page, `live.js` `refreshOverlays`; not ours). It changes when the model's state update arrives, after the command. Tips show their contents only in the 2D channel panel. Moving liquid (a surface lowered over the dwell, a column rising in the tip) is not drawn yet. The data for it are PLR's (`Container.compute_height_from_volume`) plus the `C0 AS` fields above.

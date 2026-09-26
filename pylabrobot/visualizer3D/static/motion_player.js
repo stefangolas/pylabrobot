@@ -78,7 +78,7 @@ export function createPlayer({
   function tween(from, to, drive, apply) {
     /** @type {Promise<void>} */
     const moved = new Promise((resolve) => {
-      const profile = motionProfile(to - from, drive?.speed, drive?.acceleration);
+      const profile = motionProfile(to - from, drive?.speed, drive?.acceleration, drive?.jerk);
       const entry = { from, to, profile, t: 0, resolve, apply };
       if (skipping() || !(speed > 0) || profile.duration === 0) finish(entry);
       else running.add(entry);
