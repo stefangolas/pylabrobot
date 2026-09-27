@@ -45,12 +45,18 @@ ISWAP = {"C0PP", "C0PR"}
 FAR_X = 850.0  # iSWAP targets right of this take a longer path
 
 
-def vals(s: str, n: int = 8) -> List[int]:
-  """A per-channel field; a trailing `&` repeats the last value for the remaining channels."""
+def vals(s: str, n: int = 8, shared: bool = False) -> List[int]:
+  """A per-channel field; a trailing `&` repeats the last value for the remaining channels.
+
+  `shared`: a field sent once for every channel, as a tip command's heights are (`tp`, `tz`). Read
+  as channel 0's alone, the other channels were timed from Z = 0.
+  """
   if not s:
     return [0] * n
   rep = s.endswith("&")
   t = [int(x) for x in s.rstrip("&").split()]
+  if shared and len(t) == 1:
+    return t * n
   return (t + [t[-1] if rep else 0] * (n - len(t)))[:n]
 
 
@@ -110,13 +116,21 @@ def channel_row(prev: Dict[str, Any], e: Dict[str, Any]) -> Optional[Dict[str, A
       "channels": float(len(act)),
     }
   elif e["c"] == "C0TP":
-    tp, tz = vals(q.get("tp", "")), vals(q.get("tz", ""))
-    drawn = (
-      base + max(z_time(th - tz[j] / 10) for j in act) + max(z_time(te - tz[j] / 10) for j in act)
-    )
+    # As the page draws it: across, a fast descent to `tp` that may set off before the crossing
+    # has finished, the press from `tp` to `tz` (a fitted time per mm), and back up. The parts are
+    # kept so the overlap can be fitted; `fixed` here is for the crossing and descent in sequence.
+    tp, tz = vals(q.get("tp", ""), shared=True), vals(q.get("tz", ""), shared=True)
+    parts = {
+      "rise": rise,
+      "across": max(tx, ty),
+      "down": max(z_time(th - tp[j] / 10) for j in act),
+      "up": max(z_time(te - tz[j] / 10) for j in act),
+    }
+    drawn = sum(parts.values())
     features = {"press tp-tz mm": (tp[i] - tz[i]) / 10, "channels": float(len(act))}
+    return {"c": e["c"], "fixed": e["d"] - drawn, "features": features, "d": e["d"], "parts": parts}
   elif e["c"] == "C0TR":
-    tz = vals(q.get("tz", ""))
+    tz = vals(q.get("tz", ""), shared=True)
     drawn = (
       base + max(z_time(th - tz[j] / 10) for j in act) + max(z_time(te - tz[j] / 10) for j in act)
     )
@@ -268,6 +282,25 @@ def report(channel: List[Dict], head: List[Dict], iswap: List[Dict]) -> Dict[str
   for cmd, names in models.items():
     rows = [r for r in channel if r["c"] == cmd]
     out["channels"][cmd] = {"constant only": fit_linear(rows, []), "model": fit_linear(rows, names)}
+
+  # A tip pick-up's descent may set off before its crossing has finished: from a share f of the
+  # crossing's time. f = 1 is the two in sequence.
+  pickups = [r for r in channel if r["c"] == "C0TP"]
+
+  def overlapped(share: float) -> List[Dict[str, Any]]:
+    out_rows = []
+    for r in pickups:
+      p = r["parts"]
+      crossing = share * p["across"] + max(p["down"], (1 - share) * p["across"])
+      out_rows.append({**r, "fixed": r["d"] - (p["rise"] + crossing + p["up"])})
+    return out_rows
+
+  shares = [round(v, 2) for v in np.arange(0.0, 1.001, 0.02)]
+  best = min(shares, key=lambda f: fit_linear(overlapped(f), ["press tp-tz mm"])["rms_ms"])
+  out["channels"]["C0TP overlap"] = {
+    "in sequence (f = 1)": fit_linear(overlapped(1.0), ["press tp-tz mm"]),
+    f"descent from f = {best}": {"share": best, **fit_linear(overlapped(best), ["press tp-tz mm"])},
+  }
 
   for name, y, z in (("PLR defaults", HEAD_Y_PLR, HEAD_Z_PLR),):
     out["head96"][f"max(X, head Y) + Z, {name}"] = within_fit(head, lambda r: head_travel(r, y, z))

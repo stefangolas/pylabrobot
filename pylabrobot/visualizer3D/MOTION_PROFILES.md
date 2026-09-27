@@ -52,9 +52,11 @@ Profile: **stroke with handover**.
 |---|---|---|---|
 | 1. Rise | Any channel lower than `th` rises to it (by lowest point) | FW + SIM | `th`. The simulator records the stroke "across at the height it starts from" (`_record_tip_command`). |
 | 2. Across | The arm to the X of the last column (`xp`); the channels to `yp`; the channels not named pushed along the rail by the spacing rule | FW + PLR + SIM | Positions are FW. Pushing the others follows `Pipettes._plan_y_positions(make_space=True)`, as the simulator does ("one rail", `_record_tip_command`). Ported as `_Frames.planned_ys`. |
-| 3. Down | The lowest point to `tz` | FW | `tz`. |
-| 4. Handover | Each spot's tip goes to the channel's shaft, placed as `TipMountingShaft.mount_tip` places it, then seated at the Z drive's pace | PLR + HEUR | The placement is PLR (`_mounted_location`). Seating the tip at the Z-drive pace instead of snapping it is ours (HEUR): the model's placement and the stroke's bottom differ by the fitting geometry. |
-| 5. Up | The lowest point to `th`, now with the tip's overhang | FW + PLR | The overhang is the tip type's defined length (`STARDriver.defined_tip_lengths`). |
+| 0. Fixed | 0.065 s of command handling before anything moves | HEUR | Section 8.6. |
+| 3. Down | The lowest point to `tp` at the Z drive's speed, setting off when 82% of the crossing's time has passed | FW + FIT | `tp`; the overlap, section 8.6. |
+| 3b. Press | On to `tz` at 11.5 mm/s | FW + FIT | `tz`; the speed, section 8.6. |
+| 4. Handover and hold | Each spot's tip goes to the channel's shaft, placed as `TipMountingShaft.mount_tip` places it, then seated at the Z drive's pace; the channels hold 4.356 s, the rest of the fixed time | PLR + FIT + HEUR | The placement is PLR (`_mounted_location`). Seating the tip at the Z-drive pace instead of snapping it is ours (HEUR): the model's placement and the stroke's bottom differ by the fitting geometry. |
+| 5. Up | The lowest point to `th`, now with the tip's overhang | FW + PLR | The overhang is read off the tip in the spot and where the shaft seats it (as `TipMountingShaft.tip_bottom` reads it); the simulator's `defined_tip_lengths` only when the model has no tip there. |
 
 Also used: begin height `tp` = spot + collar height (PLR, legacy `STARBackend.pick_up_tips`, per `_pick_up_tips_in_one_move`).
 
@@ -76,16 +78,16 @@ Profile: **stroke with dwell and leave**.
 | Phase | Target | Tag | Source |
 |---|---|---|---|
 | 1–2 | As `C0 TP` | FW + SIM | |
-| 3. Down | max(`zl` − `ip`, `zx`): the surface less the immersion depth, no lower than the minimum height | FW | Field meanings are in legacy's `STARBackend.aspirate_pip` docstring (after the firmware guide): `zl` "Liquid surface at function without LLD", `ip` "Immersion depth", `zx` "Minimum height (maximum immersion depth)". |
-| 4. Dwell | Longest channel of (`av` / `as`) + `wt` | FW | Volume ÷ flow rate, plus the settling time. |
+| 0. Fixed | 1.879 s + 6.761 × transport-air time, before anything moves | FIT + HEUR | Section 8.6; placement HEUR. |
+| 3. Down | max(`zl` ∓ `ip`, `zx`): into the liquid by the immersion depth, or above it when `it` is 1; no lower than the minimum height | FW | Field meanings are in legacy's `STARBackend.aspirate_pip` docstring (after the firmware guide): `zl` "Liquid surface at function without LLD", `ip` "Immersion depth", `zx` "Minimum height (maximum immersion depth)". |
+| 4. Dwell | Longest channel of (`av` / `as`) + `wt` + mixing; while the volume is drawn, each tip follows the surface down by `fp` at a steady pace (no lower than `zx`) | FW + FIT | Volume ÷ flow rate, settling time, mixing (section 8.6). `fp` is "the total distance the tip moves during aspiration, from the surface down to the new, reduced height" (PLR maintainer, [discuss.pylabrobot.org/t/304/6](https://discuss.pylabrobot.org/t/hamilton-surface-following-issues/304/6)). |
 | 5. Leave | Up to the surface at the swap speed `de` | FW | `de` "Swap speed (on leaving liquid)" (legacy docstring; default 10 mm/s). |
+| 5b. Pull-out | On up by `po` from the surface, at the swap speed, before the transport air is drawn | FW + HEUR | `po` "rise before drawing transport air" (PLR's `aspirate` docstring). Measured from the surface and at the swap speed: HEUR. |
 | 6. Up | To `te` | FW | |
 
 Known divergences from the device (to do):
-- **Surface following is not played.** The tip should descend by `fp` over the dwell. `fp` is "the total distance the tip moves during aspiration, from the surface down to the new, reduced height" (PLR maintainer, [discuss.pylabrobot.org/t/304/6](https://discuss.pylabrobot.org/t/hamilton-surface-following-issues/304/6)).
-- `it` (immersion direction: 0 deeper, 1 up out of the liquid) is ignored.
-- `po` (transport-air pull-out, 5 mm without LLD) is not played.
-- The conical second section (`zu`, `zr`) is not played.
+- The conical second section (`zu`, `zr`) is not played: how the firmware changes the following pace there isn't documented.
+- In the demo's aspirate (PLR's defaults), PLR sent the minimum height `zx` equal to the surface `zl`, so the tip went no deeper than the surface and could follow nowhere, whatever `ip` and `fp` said. Worth checking how PLR sets `zx` upstream.
 - In v1, LLD is **never** done inside `C0AS`: capacitive/pressure searches run first as their own commands (see `Px ZL` / `Px ZE`, section 5), and `C0AS` goes with LLD off (PR [#1362](https://github.com/PyLabRobot/pylabrobot/pull/1362)). So `C0AS` itself needs no search phase.
 
 ### `C0 JY` — channels to Y positions
@@ -379,8 +381,8 @@ The measured duration minus that drawn time is the command's fixed time. It's fi
 | Command | Model (FIT) | n | R² of the fixed time | RMS | AIC | BIC | Constant only: RMS / AIC | Whole-duration R², median miss |
 |---|---|---|---|---|---|---|---|---|
 | `C0 AS` | 1.879 s + 0.979 × mix volume time + 0.557 s × mix cycles + 6.761 × transport-air time | 228,477 | 0.641 | 521 ms | −297,806 | −297,765 | 870 ms / −63,563 | 0.912, 65 ms |
-| `C0 TP` | 1.460 s, played as a 1.395 s hold at the bottom after 0.065 s of command handling (placement HEUR), **plus the press drawn as motion** (0.0792 s/mm of `tp − tz`, below) | 48,304 | 0.763 | 43 ms | −304,403 | −304,386 | 88 ms / −234,948 | 0.852, 11 ms |
-| `C0 TR` | 3.059 s (median; channels add 0.010 ± 0.003 s, R² 0.0002: left out), played as a 2.994 s hold at the bottom while the tips are pushed off, after 0.065 s of command handling (placement HEUR) | 54,290 | 0.000 | 230 ms | −159,714 | −159,705 | same | 0.346, 224 ms |
+| `C0 TP` | 4.421 s, played as a 4.356 s hold at the bottom after 0.065 s of command handling (placement HEUR), **plus the press drawn as motion** (0.0871 s/mm of `tp − tz`) and the descent setting off at 82% of the crossing (both below) | 48,304 | 0.830 | 38 ms | −316,189 | −316,172 | 94 ms / −228,685 | ≈0.84, — |
+| `C0 TR` | 5.009 s (mean; channels add 0.21 s each, R² 0.15, but 7 against 8 channels is also one protocol against the others: left out), played as a 4.944 s hold at the bottom while the tips are pushed off, after 0.065 s of command handling (placement HEUR) | 54,290 | 0.000 | 176 ms | −188,805 | −188,797 | same | ≈0.61, — |
 | `C0 ZA` | 0.14 s (median of 1,783; the channels were mostly already up) | 1,783 | — | — | — | — | — |
 | `C0 EP` (96-head tips on) | 4.938 s (median, against PLR's head drive defaults; IQR 4.934–4.947) | 155 | — | — | — | — | — |
 | `C0 ER` (96-head tips off) | 4.490 s (median; IQR 4.281–4.499) | 5,867 | — | — | — | — | — |
@@ -388,10 +390,12 @@ The measured duration minus that drawn time is the command's fixed time. It's fi
 | `C0 JY/JZ/FY`, `X0 XP`, iSWAP `R0` steps | 0.065 s: a 1 mm `C0 KY` jog less its travel; HEUR by analogy | — | — | — | — | — | — |
 | `C0 ZT`/`ZS` (CO-RE tools) | as `C0 TP`/`C0 TR`; HEUR, no recorded counterpart | — | — | — | — | — | — |
 
-- **Why these R² look modest:** they measure the fixed time, which is what's left after the drawn motion, and it spreads little (tip pick-up: 88 ms). Against the whole duration the page's timing reaches R² 0.91 (aspirate) and 0.85 (tip pick-up). Tip drop stays weak (0.35): what makes some drops slower isn't found.
+- **Why these R² look modest:** they measure the fixed time, which is what's left after the drawn motion, and it spreads little (tip pick-up: 88 ms). Against the whole duration the page's timing reaches R² 0.91 (aspirate), ≈0.84 (tip pick-up) and ≈0.61 (tip drop; the whole-duration figures for the tip commands are 1 − RMS²/variance of the duration).
 - **Channel count is left out.** Nearly every recorded command uses 7 or 8 channels, so its coefficient tracks protocols: +0.04 s in one extraction, −0.27 s in another differing by 0.1% of rows.
 - **Aspirate:** the median |residual| is 65 ms; the RMS is inflated by a few protocols (liquid-level detection, 34 rows, which the page doesn't draw). Mixing happens at the bottom, so its two terms are added to the dwell, not the pause.
-- **Tip press:** the fixed time of `C0 TP` grows 0.0792 s per mm of `tp − tz` beyond that distance at the Z drive's speed. The page therefore goes down to `tp` at the drive's speed and presses on to `tz` at 1 / (0.0792 + 1/150) = **11.6 mm/s**. Only two press lengths are recorded (8 and 10 mm).
+- **Tip press:** the fixed time of `C0 TP` grows 0.0871 s per mm of `tp − tz`. The page goes down to `tp` at the Z drive's speed and presses on to `tz` at 1 / 0.0871 = **11.5 mm/s**. Only two press lengths are recorded (8 and 10 mm).
+- **Tip pick-up overlap:** the descent to `tp` sets off when 82% of the crossing's time has passed (R² of the fixed time 0.830 against 0.810 in sequence, ΔAIC 7,234). Going from 9 to 18 mm adds 116 ms of X travel but only 7 ms to the command; 27 mm adds 198 ms but 112 ms. Nearly every recorded pick-up moves 9 mm (48,024 of 48,172), so the share is loosely determined. Drops can't be checked: hardly any travel without a Y move.
+- **Correction (2026-09-26):** a tip command sends `tp` and `tz` once for all channels. An earlier version of the tool read them as channel 0's only and timed the other channels' descents from Z = 0, which made the pick-up and drop fixed times about 3 s too small (1.46 and 3.06 s). The aspirate, whose heights are always per channel, was unaffected, as are the ripple and Z fits in 8.4.
 
 ### 8.7 The 96-head
 
@@ -434,7 +438,7 @@ Venus sends whole moves (`C0 PP` get, `C0 PR` put); PLR sends the iSWAP's steps 
 | Channel Z | trapezoid 150 mm/s, 800 mm/s² | FIT (speed), PLR (acceleration) | R² 0.986, RMS 33 ms, AIC −224,741 | 125 mm/s, 800 mm/s² | Acceleration yes; speed loose, 150–200 |
 | Aspiration dwell | volume ÷ flow + settle | FW | slope 0.99–1.02 | same | Yes |
 | Mixing | 0.979 × 2·cycles·volume ÷ speed + 0.557 s per cycle | FIT | part of the AS model | not drawn before | Yes (20k mixes) |
-| Tip press | 11.6 mm/s from `tp` to `tz` | FIT | TP fixed-time R² 0.76, RMS 43 ms (whole duration R² 0.85) | none (straight to `tz`) | Two press lengths only |
+| Tip press | 11.5 mm/s from `tp` to `tz` | FIT | TP fixed-time R² 0.83, RMS 38 ms | none (straight to `tz`) | Two press lengths only |
 | Fixed times | per command, 8.6 | FIT / HEUR | 8.6 | none | Measured for AS, TP, TR, ZA, EP, ER; by analogy for the rest; when in the command it falls isn't known |
 | 96-head X and Y | overlap: max(X, Y) | FIT | ΔAIC ≈ 11,100 over X-then-Y | the simulator: at once | Yes |
 | 96-head Y, Z | PLR defaults (390.6 / 546.9; 85 / 400) | PLR | R² 0.79 with no free parameter | same | Not identified better by the traces |
