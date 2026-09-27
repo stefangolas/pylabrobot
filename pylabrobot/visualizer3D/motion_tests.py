@@ -20,6 +20,7 @@ from pylabrobot.resources.plate import Plate
 from pylabrobot.resources.tip_rack import TipRack
 from pylabrobot.resources.tip_tracking import does_tip_tracking, set_tip_tracking
 from pylabrobot.visualizer3D.demo import build_facility, fill, star_of
+from pylabrobot.visualizer3D import motion
 from pylabrobot.visualizer3D.motion import star_motion
 from pylabrobot.visualizer3D.server import Viewer3D
 from pylabrobot.visualizer3D.server_tests import free_ports, track_volumes
@@ -130,8 +131,30 @@ class DecoderTests(unittest.IsolatedAsyncioTestCase):
     await self.star.pipettes.aspirate([self.source.get_item("A3")], [100.0])
     aspirate = next(r for r in self.requests if r["kind"] == "aspirate")
     self.assertGreater(aspirate["dwell"], 0.0)
-    self.assertEqual(aspirate["drives"]["z"]["speed"], self.star.pipettes.default_z_speed)
-    self.assertEqual(aspirate["drives"]["y"]["speed"], self.star.pipettes.default_y_speed)
+    # The drives move as a STAR's own timings say, where PLR's defaults are slower.
+    self.assertEqual(aspirate["drives"]["z"]["speed"], motion.CHANNEL_Z_SPEED)
+    self.assertEqual(aspirate["drives"]["y"]["speed"], motion.CHANNEL_Y_SPEED)
+    self.assertEqual(aspirate["drives"]["y"]["stagger"], motion.CHANNEL_Y_STAGGER)
+
+  async def test_every_command_takes_its_fixed_time_as_well(self):
+    spots = [self.rack.get_item(f"{row}5") for row in "ABCD"]
+    await self.star.pipettes.pick_up_tips(spots)
+    await self.star.pipettes.aspirate(
+      [self.source.get_item(f"{row}5") for row in "ABCD"], [50.0] * 4
+    )
+    await self.star.pipettes.drop_tips(spots)
+    by_kind = {r["kind"]: r for r in self.requests}
+    self.assertEqual(by_kind["tip_pickup"]["fixed"], motion.TIP_PICKUP_FIXED)
+    self.assertGreaterEqual(by_kind["aspirate"]["fixed"] + 0.001, motion.ASPIRATE_FIXED)
+    self.assertEqual(by_kind["tip_drop"]["fixed"], motion.TIP_DROP_FIXED)
+    for request in self.requests:
+      self.assertGreater(request["fixed"], 0.0, request["kind"])
+
+  async def test_a_tip_pick_up_presses_the_last_stretch_slowly(self):
+    await self.star.pipettes.pick_up_tips([self.rack.get_item("A6")])
+    channel = next(r for r in self.requests if r["kind"] == "tip_pickup")["channels"][0]
+    self.assertLess(channel["press"], channel["down"])
+    self.assertEqual(channel["press_speed"], motion.TIP_PRESS_SPEED)
 
   async def test_a_read_moves_nothing(self):
     self.assertIsNone(star_motion(self.star.driver, "C0", "RY", {}))

@@ -2,10 +2,13 @@
 // makes them, each following its drive's speed profile. Pure - it is handed how to read and set
 // positions and how to move a tip - so it can be checked outside a page.
 //
-// The stroke is the one the simulator records a tip command as: across, with the arm and the
-// channels moving at once; down onto the targets; back up. Before it, anything below the traverse
-// height rises to it; at the bottom, tips change hands and an aspiration dwells, then leaves the
-// liquid at its own swap speed. A command that only moves one axis plays that one move.
+// First the command's fixed time: what the device takes beyond its motion, measured from its own
+// command timings, spent before anything moves. Then the stroke the simulator records a tip
+// command as: across, with the arm and the channels moving at once, the channels setting off one
+// after another (the ripple); down onto the targets, a tip pick-up pressing the last stretch
+// slowly; back up. Before it, anything below the traverse height rises to it; at the bottom, tips
+// change hands and an aspiration dwells, then leaves the liquid at its own swap speed. A command
+// that only moves one axis plays that one move.
 //
 // An iSWAP command moves its drives at once: the head along Y or Z, the two joints turning about
 // their pivots, or the jaws. Jaws that close take hold of what is between them; jaws that open let
@@ -123,6 +126,9 @@ export function createPlayer({
         .filter((c) => c.index !== undefined);
 
     return [
+      // What the command takes beyond its motion, before anything moves.
+      () => (request.fixed > 0 ? [() => pause(request.fixed)] : []),
+
       // Up to traverse height: whatever is lower rises, whatever is higher stays.
       () =>
         (request.traverse ?? [])
@@ -138,11 +144,17 @@ export function createPlayer({
         if (armIndex !== undefined && Math.abs(readAxis(armIndex, 0) - arm.x) >= STILL) {
           moves.push(() => move(armIndex, 0, arm.x, drives.x));
         }
-        for (const c of channels("y")) {
-          if (Math.abs(readAxis(c.index, 1) - c.y) >= STILL) {
-            moves.push(() => move(c.index, 1, c.y, drives.y));
-          }
-        }
+        // The channels set off one after another, in channel order, each `stagger` after the last.
+        const stagger = drives.y?.stagger > 0 ? drives.y.stagger : 0;
+        const moving = channels("y")
+          .filter((c) => Math.abs(readAxis(c.index, 1) - c.y) >= STILL)
+          .sort((a, b) => (a.channel ?? 0) - (b.channel ?? 0));
+        moving.forEach((c, rank) => {
+          moves.push(async () => {
+            if (rank > 0 && stagger > 0) await pause(rank * stagger);
+            await move(c.index, 1, c.y, drives.y);
+          });
+        });
         return moves;
       },
 
@@ -151,6 +163,18 @@ export function createPlayer({
         channels("down")
           .filter((c) => Math.abs(readAxis(c.index, 2) - c.down) >= STILL)
           .map((c) => () => move(c.index, 2, c.down, drives.z)),
+
+      // The last stretch of a tip pick-up, pressed on slowly.
+      () =>
+        channels("press")
+          .filter((c) => Math.abs(readAxis(c.index, 2) - c.press) >= STILL)
+          .map(
+            (c) => () =>
+              move(c.index, 2, c.press, {
+                speed: c.press_speed,
+                acceleration: drives.z?.acceleration,
+              }),
+          ),
 
       // At the bottom: tips change hands, and whatever the command does there takes its time.
       () => {

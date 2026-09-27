@@ -129,6 +129,67 @@ test("an aspiration dwells at the bottom and leaves the liquid at its own speed"
   assert.ok(leaving.length > 100, "it left the liquid at the drive's speed, not its own");
 });
 
+test("a command's fixed time is spent before anything moves", async () => {
+  const world = fakeWorld(start());
+  const quick = await playOut(createPlayer(fakeWorld(start()).deps()), pickUp);
+  const player = createPlayer(world.deps());
+  let seconds = 0;
+  const playing = player.play({ ...pickUp, fixed: 1.2 });
+  for (; seconds < 1.1; seconds += 1 / 60) {
+    await new Promise((resolve) => setImmediate(resolve));
+    player.step(1 / 60);
+  }
+  assert.equal(world.log.length, 0, "something moved during the fixed time");
+  let rest = 0;
+  let done = false;
+  playing.then(() => (done = true));
+  for (let i = 0; i < 100000 && !done; i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+    if (done) break;
+    player.step(1 / 60);
+    rest += 1 / 60;
+  }
+  assert.ok(Math.abs(seconds + rest - quick - 1.2) < 0.05, `took ${seconds + rest}, expected ${quick + 1.2}`);
+});
+
+test("the channels set off in Y one after another, each a stagger after the last", async () => {
+  const positions = { arm: [100, 0, 0], ch0: [0, 150, 10], ch1: [0, 140, 10], ch2: [0, 130, 10] };
+  const world = fakeWorld(positions);
+  const request = {
+    ...pickUp,
+    arm: null,
+    attach: [],
+    traverse: [],
+    channels: [
+      { name: "ch2", channel: 2, y: 30 },
+      { name: "ch0", channel: 0, y: 50 },
+      { name: "ch1", channel: 1, y: 40 },
+    ],
+    drives: { ...DRIVES, y: { speed: 250, acceleration: 800, stagger: 0.5 } },
+  };
+  const seconds = await playOut(createPlayer(world.deps()), request);
+  // In channel order: ch0 first, ch2 last, two staggers after it.
+  const first = (name) => world.log.findIndex((e) => e.name === name);
+  assert.ok(first("ch0") < first("ch1") && first("ch1") < first("ch2"), "not in channel order");
+  const expected = 2 * 0.5 + motionProfile(100, 250, 800).duration;
+  assert.ok(Math.abs(seconds - expected) < 0.05, `took ${seconds}, expected ${expected}`);
+  assert.deepEqual([world.at("ch0")[1], world.at("ch1")[1], world.at("ch2")[1]], [50, 40, 30]);
+});
+
+test("a tip pick-up presses the last stretch at its own slow speed", async () => {
+  const world = fakeWorld(start());
+  const pressing = {
+    ...pickUp,
+    channels: [{ name: "ch0", channel: 0, y: 150, down: -90, press: -100, press_speed: 10, end: 10 }],
+  };
+  const seconds = await playOut(createPlayer(world.deps()), pressing);
+  const handover = world.log.findIndex((e) => e.attach === "tip");
+  assert.equal(world.log[handover].z, -100, "the tip was taken before the press ended");
+  const slow = world.log.filter((e) => e.axis === 2 && e.value < -90 && e.value >= -100);
+  assert.ok(slow.length > 50, "the press ran at the drive's speed");
+  assert.ok(seconds > 1.0, `10 mm at 10 mm/s took only ${seconds}`);
+});
+
 test("a page in the background jumps to the end and still hands the tips over", async () => {
   const world = fakeWorld(start());
   const player = createPlayer(world.deps(() => true));

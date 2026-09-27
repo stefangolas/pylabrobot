@@ -8,16 +8,21 @@ out, and needs the command's targets to do it.
 model the drives, so the page can move them without knowing anything about firmware. A command that
 moves nothing, or one this does not read, returns None.
 
-Everything here comes from the driver or from the command itself, with two exceptions the driver
-does not state, fitted instead from a STAR's own command timings: the X-arm's speed, acceleration and
-jerk (it moves on an S-curve), and the channels' Y acceleration.
+Everything here comes from the driver or from the command itself, except what the driver does not
+state and a STAR's own command timings do (Venus HxUsbComm traces; MOTION_PROFILES.md section 8):
+the X-arm's speed, acceleration and jerk (it moves on an S-curve); the channels' Y speed and
+acceleration, and the ripple in which they start their Y moves one after another; the channels' Z
+speed; the slow press of a tip pick-up; and each command's fixed time.
 
-- Channel Y and Z speeds, and Z acceleration, are the channels' defaults (`Pipettes.default_*`).
-  Y is stated only as an acceleration level, not a rate; its acceleration is fitted from traces.
+- Channel Z acceleration is the channels' default (`Pipettes.default_z_acceleration`), which the
+  traces agree with.
 - The stroke of a tip command is the one the simulator records (`_record_tip_command`): across, with
-  the arm and the channels moving at once, down onto the spots, and back up.
-- An aspiration dwells for as long as its own volume and flow rate say, plus its settling time, and
-  leaves the liquid at its own swap speed.
+  the arm and the channels moving at once, down onto the spots, and back up. A pick-up presses the
+  last stretch, from `tp` to `tz`, slowly.
+- An aspiration dwells for as long as its own volume and flow rate say, plus its settling time and
+  its mixing, and leaves the liquid at its own swap speed.
+- Every command also takes a fixed time, beyond the motion: what the traces measure less what the
+  page draws, as a function of the command's own parameters where they matter.
 - The 96-head's Y and Z move at the head's own drive defaults (`HeadConfiguration`), or at what a
   move of its own carries; its tip commands make the channels' stroke, channel A1 going to spot A1.
 - An iSWAP command moves one drive or two, each at the speed and acceleration the command carries,
@@ -43,8 +48,47 @@ X_SPEED = 600.0  # mm/s
 X_ACCELERATION = 1297.0  # mm/s^2
 X_JERK = 3210.0  # mm/s^3
 # Channel Y is stated only as an acceleration level, not a rate. Single-channel Y jogs in the same
-# traces (`C0 KY`, 1/10/100 mm) fit a trapezoid at this acceleration within 5 ms; jerk adds nothing.
+# traces (`C0 KY`, 1/10/100 mm) fit a trapezoid at 300 mm/s and this acceleration within 5 ms; jerk
+# adds nothing. In the full model of `C0 AS/DS` (`tools/hxusbcomm_channels.py`) the Y travel at these
+# values enters with slope 1.01. PLR's `default_y_speed` is 250 mm/s.
+CHANNEL_Y_SPEED = 300.0  # mm/s
 CHANNEL_Y_ACCELERATION = 900.0  # mm/s^2
+# The channels start their Y moves one after another (the ripple): the Y cost of a move grows by
+# this much per channel moving after the first - 0.30 / 0.69 / 0.76 s for 4 / 7 / 8 channels in
+# `C0 DS`, a line with slope 0.118 s and no fixed part (MOTION_PROFILES.md 8.4). The order they go
+# in is not measured; the page takes them in channel order.
+CHANNEL_Y_STAGGER = 0.118  # s
+# Channel Z: dispense-then-aspirate pairs with no X or Y move fit a trapezoid at PLR's acceleration
+# and this speed (R^2 within 0.986, delta AIC 186 over a straight line). The speed is loose, 150-200
+# mm/s, as the recorded strokes form two clusters. PLR's `default_z_speed` is 125 mm/s.
+CHANNEL_Z_SPEED = 150.0  # mm/s
+# A tip pick-up goes down to `tp` at the Z drive's speed and presses on to `tz` at this one: the
+# fixed time of `C0 TP` grows 0.0792 s per mm of `tp - tz` beyond that distance at CHANNEL_Z_SPEED,
+# i.e. 1 / (0.0792 + 1 / 150) mm/s (R^2 0.76; only 8 and 10 mm recorded).
+TIP_PRESS_SPEED = 11.6  # mm/s
+
+# What a command takes beyond the motion the page draws: the measured duration less the drawn one,
+# as a model of the command's own parameters (MOTION_PROFILES.md 8.6, `tools/hxusbcomm_fixed.py`). Played as a pause before
+# the motion, since the traces time commands but not what the firmware does when.
+# The channel count is left out: nearly every recorded command uses 7 or 8 channels, so its
+# coefficient only tracks protocols (it swings from +0.04 to -0.27 s with 0.1% of the data).
+ASPIRATE_FIXED = 1.879  # s
+ASPIRATE_FIXED_PER_TRANSPORT_AIR_TIME = 6.761  # s per s of transport air at the flow rate
+# Mixing happens at the bottom, so it adds to the dwell: its volume time, and a turnaround per cycle.
+MIX_VOLUME_TIME_FACTOR = 0.979
+MIX_PER_CYCLE = 0.557  # s
+TIP_PICKUP_FIXED = 1.460  # s
+TIP_DROP_FIXED = 3.059  # s, the median; the channel count adds nothing measurable
+CHANNELS_UP_FIXED = 0.14  # s: `C0 ZA`, median over 1,783, the channels mostly already up
+HEAD96_TIP_PICKUP_FIXED = 4.938  # s: `C0 EP`, median over 155, against PLR's head drive defaults
+HEAD96_TIP_DROP_FIXED = 4.490  # s: `C0 ER`, median over 5,867
+HEAD96_MOVE_FIXED = 0.11  # s: a head command that travels nothing (`H0 YP`, 10th percentile)
+# Simple single-drive commands with no recorded counterpart (`C0 JY/JZ/FY`, `X0 XP`, iSWAP `R0`
+# primitives): what a single-channel 1 mm jog takes beyond its travel (`C0 KY`, 0.132 s less 0.067 s).
+SIMPLE_MOVE_FIXED = 0.065  # s
+# CO-RE grip tools have no recorded counterpart either; their strokes are tip strokes (HEUR).
+CORE_TOOL_PICKUP_FIXED = TIP_PICKUP_FIXED
+CORE_TOOL_RETURN_FIXED = TIP_DROP_FIXED
 
 # How close a command's position has to be to a tip spot's centre to be taken as that spot, in mm.
 SPOT_TOLERANCE = 1.0
@@ -173,8 +217,12 @@ class _Frames:
     p = self.pipettes
     return {
       "x": {"speed": X_SPEED, "acceleration": X_ACCELERATION, "jerk": X_JERK},
-      "y": {"speed": p.default_y_speed, "acceleration": CHANNEL_Y_ACCELERATION},
-      "z": {"speed": p.default_z_speed, "acceleration": p.default_z_acceleration},
+      "y": {
+        "speed": CHANNEL_Y_SPEED,
+        "acceleration": CHANNEL_Y_ACCELERATION,
+        "stagger": CHANNEL_Y_STAGGER,
+      },
+      "z": {"speed": CHANNEL_Z_SPEED, "acceleration": p.default_z_acceleration},
     }
 
 
@@ -187,6 +235,7 @@ def _request(frames: _Frames, kind: str, command: str) -> Dict[str, Any]:
     "traverse": [],
     "attach": [],
     "dwell": 0.0,
+    "fixed": 0.0,
     "drives": frames.drives(),
     "moves": [],
     "turns": [],
@@ -275,10 +324,16 @@ def _tip_pickup(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[s
     command,
     params,
     traverse=_tenths(params["th"]),
-    down={c: frames.lowest_point_z(c, _tenths(params["tz"])) for c in involved},
+    # Down to where the tip begins, then pressed on to the end of the search, slowly.
+    down={c: frames.lowest_point_z(c, _tenths(params["tp"])) for c in involved},
     # It comes away carrying the tip, which then hangs below the stop disc.
     end={c: frames.lowest_point_z(c, _tenths(params["th"]), tip_length) for c in involved},
+    extra={
+      c: {"press": frames.lowest_point_z(c, _tenths(params["tz"])), "press_speed": TIP_PRESS_SPEED}
+      for c in involved
+    },
   )
+  request["fixed"] = TIP_PICKUP_FIXED
   # At the bottom of the stroke each channel takes the tip in the spot under it onto its shaft.
   for c in involved:
     spot, shaft = frames.spot_at(*_positions(params, c)), frames.shaft(c)
@@ -410,10 +465,28 @@ def _aspirate(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str
       if swap_speed[c] > 0
     },
   )
-  # As long as the slowest channel takes to draw its volume, and settle.
+  # As long as the slowest channel takes to draw its volume, settle and mix.
   volumes, speeds, settle = per_channel("av"), per_channel("as_"), per_channel("wt")
+  cycles = {c: int(v) for c, v in zip(involved, _as_list(params.get("mc", [0] * len(involved))))}
+  mix_volumes = per_channel("mv") if "mv" in params else {c: 0.0 for c in involved}
+  mix_speeds = per_channel("ms") if "ms" in params else {c: 0.0 for c in involved}
+
+  def mixing(c: int) -> float:
+    if not cycles.get(c) or not mix_speeds[c]:
+      return 0.0
+    volume_time = 2 * cycles[c] * mix_volumes[c] / mix_speeds[c]
+    return MIX_VOLUME_TIME_FACTOR * volume_time + MIX_PER_CYCLE * cycles[c]
+
   request["dwell"] = round(
-    max((volumes[c] / speeds[c] if speeds[c] else 0.0) + settle[c] for c in involved), 2
+    max((volumes[c] / speeds[c] if speeds[c] else 0.0) + settle[c] + mixing(c) for c in involved),
+    2,
+  )
+  transport_air = per_channel("ta") if "ta" in params else {c: 0.0 for c in involved}
+  request["fixed"] = round(
+    ASPIRATE_FIXED
+    + ASPIRATE_FIXED_PER_TRANSPORT_AIR_TIME
+    * max(transport_air[c] / speeds[c] if speeds[c] else 0.0 for c in involved),
+    3,
   )
   return request
 
@@ -812,11 +885,36 @@ def star_motion(
     targets - `y`, the heights `down` and `end`, and for an aspiration where it `leave`s the liquid
     and at what `leave_speed`; the height every channel rises to first (`traverse`); the tips that
     change hands at the bottom of the stroke (`attach`: a tip's name and the resource that takes
-    it, or None to leave it where it is); how long the stroke dwells at the bottom; and the drives'
-    speeds. None for a command that moves nothing, or one this does not read.
+    it, or None to leave it where it is); how long the stroke dwells at the bottom; the command's
+    `fixed` time beyond its motion; and the drives' speeds (the channels' Y with the `stagger` one
+    channel starts after another). A tip pick-up's channels also `press` to a height at a
+    `press_speed`. None for a command that moves nothing, or one this does not read.
   """
   if command[0] in ("R", "Q"):
     return None
+  request = _decode(driver, module, command, params)
+  if request is not None and not request.get("fixed"):
+    request["fixed"] = _FIXED.get(module + command, SIMPLE_MOVE_FIXED)
+  return request
+
+
+# The fixed time of the commands whose time does not depend on their parameters; any other command
+# the decoder reads is a simple single-drive move (`SIMPLE_MOVE_FIXED`).
+_FIXED = {
+  "C0TR": TIP_DROP_FIXED,
+  "C0ZT": CORE_TOOL_PICKUP_FIXED,
+  "C0ZS": CORE_TOOL_RETURN_FIXED,
+  "C0ZA": CHANNELS_UP_FIXED,
+  "C0EP": HEAD96_TIP_PICKUP_FIXED,
+  "C0ER": HEAD96_TIP_DROP_FIXED,
+  "H0YA": HEAD96_MOVE_FIXED,
+  "H0ZA": HEAD96_MOVE_FIXED,
+}
+
+
+def _decode(
+  driver: Any, module: str, command: str, params: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
   key = module + command
   try:
     iswap = _iswap_of(driver)
