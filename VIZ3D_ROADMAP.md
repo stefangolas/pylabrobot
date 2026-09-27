@@ -78,7 +78,7 @@ Findings recorded along the way:
 - **STARlet "on waste" CO-RE holder:** the tools were 19.5 mm right of where the channels take them (817.0, beyond the 800.2 mm X travel). This came from #1342 centring the tools in the holder without moving the holder. It is fixed in 3.4.
 - **Quarter-turned plates overlap their neighbours.** PLR places a plate turned 90° onto a landscape carrier site, where it overlaps the next site by ≈32 mm. The collision check reports it.
 - **v1 STAR has no dispense in this PR.**
-- **The page's tip overhang comes from a simulator-only method** (see 4.1).
+- ~~The page's tip overhang comes from a simulator-only method~~ (fixed, 4.1).
 
 ---
 
@@ -86,7 +86,7 @@ Findings recorded along the way:
 
 | # | Work | Why / size | Depends on |
 |---|---|---|---|
-| 4.1 | Decoder overhang from the model (`TipMountingShaft.tip_bottom`), not `SimulatedPipettes._below_stop_disc` | Bug: on hardware, heights with a tip would be off by the tip length. Small | — |
+| 4.1 | ~~Decoder overhang from the model (`TipMountingShaft.tip_bottom`), not `SimulatedPipettes._below_stop_disc`~~ **Done 2026-09-26**, with the pick-up's tip length (was the simulator's `defined_tip_lengths`) | Bug: on hardware, heights with a tip would be off by the tip length. Small | — |
 | 4.2 | `C0 AS` surface following (`fp` over the dwell), transport-air pull-out (`po`), immersion direction (`it`), conical second section | Matches the device. Small | — |
 | 4.3 | Cheap moves: `C0 KX/KR` (Z safety then X), `Px ZA`, `C0 JE` (even spread), `C0 JP` (post-answer targets) | Frequent commands. Small | 4.4 for `JP` |
 | 4.4 | **Post-answer targets** in the motion channel, then detection searches `Px ZL/ZE/ZH`, `C0 XL`, `Px YL`, `H0 ZL`: a slow descent per channel, each stopping at its own detected height | Distinct, visible motion; the targets are known only from the answer. Medium | — |

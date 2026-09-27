@@ -37,6 +37,7 @@ is converted to the stop disc, with the overhang the channel has when the move i
 from typing import Any, Dict, List, Optional, Sequence
 
 from pylabrobot.resources.coordinate import Coordinate
+from pylabrobot.resources.hamilton.core_grippers import HamiltonCoreGripperTool
 from pylabrobot.resources.tip_rack import TipSpot, resting_location
 
 # The driver states no X speed or acceleration: these are fitted to a STAR's own timings, from 2.56
@@ -143,9 +144,19 @@ class _Frames:
     self.anchors = [self.pipettes._reference_anchor(c) for c in self.channels]
 
   def overhang(self, channel: int) -> float:
-    """How far what a channel carries hangs below its stop disc, in mm."""
-    below = getattr(self.pipettes, "_below_stop_disc", None)
-    return float(below(channel)) if below is not None else 0.0
+    """How far what a channel carries hangs below its stop disc, in mm, read off the model.
+
+    The firmware positions the lowest point of what the channel carries: a tip's bottom, a CO-RE
+    grip tool's grip line. From the resource tree, so it holds for any driver, not only the
+    simulator (which works it out the same way, `SimulatedPipettes._below_stop_disc`).
+    """
+    shaft = self.shaft(channel)
+    bottom = shaft.tip_bottom() if shaft is not None else None
+    if bottom is None:
+      return 0.0
+    if isinstance(shaft.tip, HamiltonCoreGripperTool):
+      return float(-bottom.z - shaft.tip.grip_line_height)
+    return float(-bottom.z)
 
   def arm_x(self, x: float) -> float:
     return round(float(x - self.arm.configuration.reference_point_from_left), 2)
@@ -323,7 +334,17 @@ def _positions(params: Dict[str, Any], channel: int) -> Any:
 
 def _tip_pickup(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
   involved = _involved(_as_list(params["tm"]))
-  tip_length = getattr(frames.driver, "defined_tip_lengths", {}).get(int(params["tt"]), 0.0)
+  # How far each tip will hang below its stop disc once on: read off the tip in the spot and where
+  # the shaft will seat it, as `TipMountingShaft.tip_bottom` then reads it. The simulator's table of
+  # defined tip lengths is only the fallback, for a spot the model has no tip in.
+  defined = getattr(frames.driver, "defined_tip_lengths", {}).get(int(params["tt"]), 0.0)
+
+  def carried(c: int) -> float:
+    spot, shaft = frames.spot_at(*_positions(params, c)), frames.shaft(c)
+    if spot is None or spot.tip is None or shaft is None:
+      return defined
+    return -_mounted_location(shaft, spot.tip)["z"]
+
   request = _stroke(
     frames,
     "tip_pickup",
@@ -333,7 +354,7 @@ def _tip_pickup(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[s
     # Down to where the tip begins, then pressed on to the end of the search, slowly.
     down={c: frames.lowest_point_z(c, _tenths(params["tp"])) for c in involved},
     # It comes away carrying the tip, which then hangs below the stop disc.
-    end={c: frames.lowest_point_z(c, _tenths(params["th"]), tip_length) for c in involved},
+    end={c: frames.lowest_point_z(c, _tenths(params["th"]), carried(c)) for c in involved},
     extra={
       c: {"press": frames.lowest_point_z(c, _tenths(params["tz"])), "press_speed": TIP_PRESS_SPEED}
       for c in involved

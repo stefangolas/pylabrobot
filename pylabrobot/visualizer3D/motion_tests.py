@@ -6,12 +6,14 @@ checked in Node (`motion_player_tests.mjs`), run from here where Node is install
 """
 
 import asyncio
+import inspect
 import json
 import pathlib
 import shutil
 import subprocess
 import time
 import unittest
+from unittest import mock
 from typing import Any, Dict, List, Optional
 
 import websockets
@@ -84,6 +86,22 @@ class DecoderTests(unittest.IsolatedAsyncioTestCase):
       stroke = [r for r in self.requests if r["kind"] == kind]
       self.assertEqual(len(stroke), 1, f"{kind}: {[r['kind'] for r in self.requests]}")
       self.assert_ends_where_the_model_is(stroke[0])
+
+  async def test_heights_with_a_tip_come_from_the_model_not_the_simulator(self):
+    """On a real STAR there is no simulator to ask how far a tip hangs below the stop disc.
+    Read from it, every height with a tip on was off by the tip's length."""
+    pipettes = self.star.pipettes
+    simulators_own = type(pipettes)._below_stop_disc
+
+    def not_from_the_decoder(this: Any, channel: int) -> float:
+      # The simulator keeps its own model with it; only the decoder must not lean on it.
+      if inspect.stack()[1].filename == motion.__file__:
+        raise AssertionError("the decoder asked the simulator how long the tip is")
+      return simulators_own(this, channel)
+
+    with mock.patch.object(type(pipettes), "_below_stop_disc", not_from_the_decoder):
+      with mock.patch.object(self.star.driver, "defined_tip_lengths", {}, create=True):
+        await self.test_each_command_ends_where_the_model_records_it_ending()
 
   async def test_the_tips_change_hands_where_the_model_then_has_them(self):
     """Placed anywhere else, the tip jumps when the model's own move reaches the page."""
