@@ -81,6 +81,9 @@ function edgesOf(geometry) {
 function geometryFor(model) {
   // A shaft is open at both ends; anything else round is a vessel or a spot, which is not.
   if (model.category === "tip_mounting_shaft") return TUBE;
+  // A pipetting channel is a round barrel on the device; the driver models it as a plain resource,
+  // which states no cross section, at the width the drive reports and its own height.
+  if (model.category === "pipette_channel") return CYL;
   return model.cross_section_type === "circle" || model.category === "tip_spot" ? CYL : BOX;
 }
 
