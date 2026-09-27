@@ -513,8 +513,9 @@ def _aspirate(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str
   draw_time = {c: volumes[c] / speeds[c] if speeds[c] else 0.0 for c in involved}
   followed = {c: max(down[c] - following[c], floor[c]) for c in involved}
   # Out of the liquid at the swap speed, then up by the pull-out distance before the transport air
-  # is drawn: from the surface (HEUR - the driver says only "rise before drawing transport air"),
-  # at the swap speed too (HEUR).
+  # is drawn, at the swap speed too: Venus aspirations otherwise identical take 5.35 s (n 4 against
+  # 802) and 4.85 s (n 12 against 3,534) longer with a 10 mm pull-out at 2 mm/s - 10 mm at 2 mm/s.
+  # From the surface (HEUR - the driver says only "rise before drawing transport air").
   pull_out = optional("po")
 
   def extras(c: int) -> Dict[str, float]:
