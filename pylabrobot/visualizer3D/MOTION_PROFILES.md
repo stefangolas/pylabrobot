@@ -374,13 +374,13 @@ The acceleration agrees with PLR's `default_z_acceleration` (800 mm/s²). The sp
 - Z at 150 mm/s and 800 mm/s²;
 - the aspiration dwell (volume ÷ flow + settling time), and the swap-speed exit.
 
-The measured duration minus that drawn time is the command's fixed time. It's fitted as a linear model of the parameters that plausibly set it. The page plays it as a pause before the motion; *where* in the command the firmware spends it isn't measured (HEUR).
+The measured duration minus that drawn time is the command's fixed time. It's fitted as a linear model of the parameters that plausibly set it. The page plays it as a pause before the motion, except a tip drop's, which is the hold at the bottom while the tips are pushed off. *Where* in a command the firmware spends it isn't measured (HEUR).
 
 | Command | Model (FIT) | n | R² of the fixed time | RMS | AIC | BIC | Constant only: RMS / AIC | Whole-duration R², median miss |
 |---|---|---|---|---|---|---|---|---|
 | `C0 AS` | 1.879 s + 0.979 × mix volume time + 0.557 s × mix cycles + 6.761 × transport-air time | 228,477 | 0.641 | 521 ms | −297,806 | −297,765 | 870 ms / −63,563 | 0.912, 65 ms |
 | `C0 TP` | 1.460 s, **plus the press drawn as motion** (0.0792 s/mm of `tp − tz`, below) | 48,304 | 0.763 | 43 ms | −304,403 | −304,386 | 88 ms / −234,948 | 0.852, 11 ms |
-| `C0 TR` | 3.059 s (median; channels add 0.010 ± 0.003 s, R² 0.0002: left out) | 54,290 | 0.000 | 230 ms | −159,714 | −159,705 | same | 0.346, 224 ms |
+| `C0 TR` | 3.059 s (median; channels add 0.010 ± 0.003 s, R² 0.0002: left out), played as a 2.994 s hold at the bottom while the tips are pushed off, after 0.065 s of command handling (placement HEUR) | 54,290 | 0.000 | 230 ms | −159,714 | −159,705 | same | 0.346, 224 ms |
 | `C0 ZA` | 0.14 s (median of 1,783; the channels were mostly already up) | 1,783 | — | — | — | — | — |
 | `C0 EP` (96-head tips on) | 4.938 s (median, against PLR's head drive defaults; IQR 4.934–4.947) | 155 | — | — | — | — | — |
 | `C0 ER` (96-head tips off) | 4.490 s (median; IQR 4.281–4.499) | 5,867 | — | — | — | — | — |

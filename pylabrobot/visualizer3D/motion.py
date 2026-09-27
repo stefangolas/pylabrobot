@@ -79,6 +79,10 @@ MIX_VOLUME_TIME_FACTOR = 0.979
 MIX_PER_CYCLE = 0.557  # s
 TIP_PICKUP_FIXED = 1.460  # s
 TIP_DROP_FIXED = 3.059  # s, the median; the channel count adds nothing measurable
+# Where in a drop that time goes is not in the traces, which time whole commands. It is played at
+# the bottom, as the hold while the tips are pushed off (HEUR, from watching the device), all but a
+# simple command's handling before the motion.
+TIP_EJECT_HOLD = TIP_DROP_FIXED - 0.065  # s
 CHANNELS_UP_FIXED = 0.14  # s: `C0 ZA`, median over 1,783, the channels mostly already up
 HEAD96_TIP_PICKUP_FIXED = 4.938  # s: `C0 EP`, median over 155, against PLR's head drive defaults
 HEAD96_TIP_DROP_FIXED = 4.490  # s: `C0 ER`, median over 5,867
@@ -359,6 +363,10 @@ def _tip_drop(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str
     # It comes away empty.
     end={c: frames.lowest_point_z(c, _tenths(params["te"]), 0.0) for c in involved},
   )
+  # At the bottom the channels hold while the tips are pushed off: the drop's fixed time, bar the
+  # command's handling before it moves.
+  request["dwell"] = TIP_EJECT_HOLD
+  request["fixed"] = round(TIP_DROP_FIXED - TIP_EJECT_HOLD, 3)
   # At the bottom of the stroke each channel leaves its tip in the spot under it, or, over
   # somewhere that is not a spot - the waste - where it is.
   for c in involved:
@@ -901,7 +909,6 @@ def star_motion(
 # The fixed time of the commands whose time does not depend on their parameters; any other command
 # the decoder reads is a simple single-drive move (`SIMPLE_MOVE_FIXED`).
 _FIXED = {
-  "C0TR": TIP_DROP_FIXED,
   "C0ZT": CORE_TOOL_PICKUP_FIXED,
   "C0ZS": CORE_TOOL_RETURN_FIXED,
   "C0ZA": CHANNELS_UP_FIXED,

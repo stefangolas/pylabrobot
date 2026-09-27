@@ -146,7 +146,10 @@ class DecoderTests(unittest.IsolatedAsyncioTestCase):
     by_kind = {r["kind"]: r for r in self.requests}
     self.assertEqual(by_kind["tip_pickup"]["fixed"], motion.TIP_PICKUP_FIXED)
     self.assertGreaterEqual(by_kind["aspirate"]["fixed"] + 0.001, motion.ASPIRATE_FIXED)
-    self.assertEqual(by_kind["tip_drop"]["fixed"], motion.TIP_DROP_FIXED)
+    # A drop spends its fixed time at the bottom, holding while the tips are pushed off.
+    drop = by_kind["tip_drop"]
+    self.assertAlmostEqual(drop["fixed"] + drop["dwell"], motion.TIP_DROP_FIXED, places=3)
+    self.assertGreater(drop["dwell"], 2.5)
     for request in self.requests:
       self.assertGreater(request["fixed"], 0.0, request["kind"])
 
