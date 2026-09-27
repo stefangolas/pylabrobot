@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { DRACOLoader } from "three/addons/DRACOLoader.js";
 import { GLTFLoader } from "three/addons/GLTFLoader.js";
 
-import { modelIsDrawn } from "./appearance.js";
+import { modelFailed, modelIsDrawn } from "./appearance.js";
 import { fitFilterDiscs } from "./boxes.js";
 import { DEG, GLAZED_MAX_OPACITY } from "./constants.js";
 import {
@@ -310,9 +310,10 @@ export function buildDeclaredMeshes() {
       place(parsed);
       continue;
     }
-    gltfLoader.load(declared.url, place, undefined, (error) =>
-      console.warn(`could not load the mesh declared by ${world.names[instances[0]]}`, error),
-    );
+    gltfLoader.load(declared.url, place, undefined, (error) => {
+      console.warn(`could not load the mesh declared by ${world.names[instances[0]]}`, error);
+      modelFailed(modelIndex);
+    });
   }
   // Whatever is left was drawn for a set of resources this scene does not have. Let go here, so a
   // file that lands later finds nothing to reuse and builds its meshes afresh.

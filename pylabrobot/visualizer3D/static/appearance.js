@@ -25,6 +25,7 @@ import {
   drawnFromFile,
   GROUND,
   isCarrier,
+  isVisible,
   meshes,
   meshRoots,
   modelMeshes,
@@ -73,7 +74,22 @@ let renderModeDirty = false;
 function fillsBox(entry) {
   // A vessel's box is drawn by its own cavity mesh, which fills it exactly. Drawing the box as well
   // puts two surfaces on the same plane, and the depth buffer cannot choose between them.
-  return !MOVING_PARTS.has(entry.model.category) && !entry.modelDrawn && !entry.isVessel;
+  //
+  // Nor is it drawn for a model that declares a file, even before the file arrives: a resource is
+  // its model, never a box, unless the file could not be had at all.
+  const declaresFile = Boolean(entry.model.mesh?.url) && !entry.meshFailed;
+  return (
+    !MOVING_PARTS.has(entry.model.category) && !entry.modelDrawn && !entry.isVessel && !declaresFile
+  );
+}
+
+/** A model's file could not be loaded: its box is drawn after all, so it does not vanish. */
+export function modelFailed(modelIndex) {
+  const entry = meshes.find((m) => m.modelIndex === modelIndex);
+  if (!entry) return;
+  entry.meshFailed = true;
+  entry.mesh.material.visible = fillsBox(entry);
+  renderModeDirty = true;
 }
 
 // Whether this is a thing you look into. Its walls stay drawn, at the shell's opacity, however much
@@ -315,13 +331,6 @@ export function modelIsDrawn(modelIndex) {
 // something in its place.
 const DETAIL_MIN_PX = 2;
 
-// And below this a model is not worth its geometry: the box it stood in for says the same thing
-// at a fraction of the cost, and one box is drawn with all the others in a single call. Between
-// the two a resource is still there, drawn as a box; below the smaller one it is not drawn at all.
-// Eight pixels is where an 8.2 mm tip lands with the camera about a metre off an 840 px tall
-// canvas: far enough out that a deck being worked on is still made of things, not boxes.
-const MODEL_MIN_PX = 8;
-
 // Below this a rail number is a smudge rather than a number. Nothing is lost by not drawing it, and
 // at facility scale it is most of what the renderer is being asked to do.
 const LABEL_MIN_PX = 7;
@@ -353,25 +362,20 @@ export function updateDetail() {
     if (label.visible !== labelsLegible) label.visible = labelsLegible;
   }
 
-  // A model is geometry, and geometry is what the renderer spends its frame on: a tip rack two
-  // pixels across was still drawing its ninety-six tips, one draw call each. The rule that decides
-  // whether a box is worth drawing decides this too - and a part that travels is exempt, because
-  // what it is doing is the thing being watched.
+  // A resource drawn from a file is always drawn from it, at any distance: the file is the
+  // resource, and a box standing in for it at a distance showed tips as boxes on a deck being
+  // worked on. What stands still is instanced - one draw per part of a file, however many stand
+  // on it - so a model costs no more than the box would have.
   const geometryOf = new Set();
   for (const root of meshRoots) {
-    const index = root.userData.index;
-    const [sx, sy] = sizeOf(modelOf(index));
-    const visible = travels(index) || Math.max(sx, sy) / perPixel >= MODEL_MIN_PX;
-    if (root.visible !== visible) root.visible = visible;
-    if (visible) geometryOf.add(world.modelOf[index]);
+    // Unless it, or something it stands in, has been switched off.
+    const shown = isVisible(root.userData.index);
+    if (root.visible !== shown) root.visible = shown;
+    geometryOf.add(world.modelOf[root.userData.index]);
   }
-  // Every resource drawn from one instanced mesh is the same model at the same size, and none of
-  // them travels - what travels keeps a clone of its own - so one answer covers the lot.
   for (const built of modelMeshes) {
-    const [sx, sy] = sizeOf(world.models[built.modelIndex]);
-    const visible = Math.max(sx, sy) / perPixel >= MODEL_MIN_PX;
-    for (const mesh of built.meshes) if (mesh.visible !== visible) mesh.visible = visible;
-    if (visible) geometryOf.add(built.modelIndex);
+    for (const mesh of built.meshes) if (!mesh.visible) mesh.visible = true;
+    geometryOf.add(built.modelIndex);
   }
 
   const drawn = new Set();

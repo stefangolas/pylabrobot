@@ -40,7 +40,8 @@ from pylabrobot.visualizer3D.server_tests import free_ports, track_volumes
 
 
 def _find_chrome() -> str:
-  """Where a headless Chrome is, or empty: `PLR_CHROME`, then the path, then the macOS install."""
+  """Where a headless Chrome is, or empty: `PLR_CHROME`, then the path, then the macOS and Windows
+  installs."""
   named = os.environ.get("PLR_CHROME", "")
   if named:
     return named
@@ -48,8 +49,14 @@ def _find_chrome() -> str:
     found = shutil.which(name)
     if found is not None:
       return found
-  installed = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-  return installed if os.path.isfile(installed) else ""
+  for installed in (
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+    os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+  ):
+    if os.path.isfile(installed):
+      return installed
+  return ""
 
 
 CHROME = _find_chrome()
@@ -657,6 +664,29 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
       self.assertNotIn("max_volume", panel)
       tip.tracker.set_volume(12.5)
       await browser.settle(f"{LIVE}('volume') === '12.50 / 65 uL'", 10)
+
+  async def test_a_tip_is_drawn_as_its_model_however_far_away(self):
+    """A resource with a model file is its model at every distance. Swapping in a box once it
+    was a few pixels across showed every tip on a deck being worked on as a box."""
+    rack = hamilton_96_tiprack_50uL_NTR(name="rack")
+    self.facility.assign_child_resource(rack, location=Coordinate(600, 400, 0))
+    tip = rack.get_item("A1").tip
+    assert tip is not None
+    async with Browser() as browser:
+      await self.page(browser, tip.name)
+      drawn = f"window.plrViewer.models().some(m => m.name === {tip.name!r})"
+      await browser.settle(drawn, 30)
+      # The whole facility in view: a tip is a pixel or two across.
+      await browser.evaluate("window.plrViewer.view('iso')")
+      await browser.frames(3)
+      parts = await browser.evaluate(
+        f"window.plrViewer.models().find(m => m.name === {tip.name!r}).parts.map(p => p.visible)"
+      )
+      self.assertTrue(parts and all(parts), parts)
+      boxes = await browser.evaluate(
+        "window.plrViewer.detail().filter(d => d.type === 'HamiltonTip').map(d => d.filled)"
+      )
+      self.assertTrue(boxes and not any(boxes), boxes)
 
   async def test_a_tree_that_changes_shape_keeps_the_models_it_had(self):
     """A scene arrives whole whenever the tree changes shape. Rebuilding the geometry for it took
