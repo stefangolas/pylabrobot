@@ -36,8 +36,8 @@ the player is `static/motion_player.js` (the page, plays targets in phases); the
 | Drive | Speed | Acceleration | Tag | Source |
 |---|---|---|---|---|
 | X-arm | 600 mm/s | 1297 mm/s², jerk 3210 mm/s³ | FIT | `X_SPEED`, `X_ACCELERATION`, `X_JERK` (`motion.py`). The driver states no X rate; firmware X commands carry only an acceleration *level*. Section 8.1: S-curve within-group R² 0.976, RMS 23.4 ms, ΔAIC 72.7 over a trapezoid. Jerk is well determined; speed and acceleration less so. |
-| Channel Y | 250 mm/s | 900 mm/s² | PLR + FIT | Speed: `Pipettes.default_y_speed`. Acceleration: `CHANNEL_Y_ACCELERATION` (`motion.py`). The firmware states Y acceleration only as a level (1–4, `default_y_acceleration_level = 3`); single-channel Y jogs fit a trapezoid at ≈900 mm/s² (section 8.2). The simulator still times Y at constant speed. |
-| Channel Z | 125 mm/s | 800 mm/s² | PLR | `Pipettes.default_z_speed`, `Pipettes.default_z_acceleration`. |
+| Channel Y | 300 mm/s | 900 mm/s² | FIT | `CHANNEL_Y_SPEED`, `CHANNEL_Y_ACCELERATION` (`motion.py`), from single-channel jogs (section 8.2); PLR's `default_y_speed` is 250 mm/s. The firmware states Y acceleration only as a level (1–4, `default_y_acceleration_level = 3`). The channels set off 0.118 s apart (`CHANNEL_Y_STAGGER`, section 8.4). The simulator still times Y at constant speed. |
+| Channel Z | 150 mm/s | 800 mm/s² | FIT + PLR | Speed: `CHANNEL_Z_SPEED`, fitted from dispense→aspirate pairs (section 8.4; loose, 150–200); PLR's `default_z_speed` is 125 mm/s. Acceleration: `Pipettes.default_z_acceleration`, which the traces agree with. |
 | 96-head Y / Z | the head's defaults | the head's defaults | PLR | `HeadConfiguration.y_drive_speed_default` / `z_drive_speed_default` and their accelerations (`features/head.py`): the value the firmware reports when read, else the configured default increments. |
 | iSWAP gripper, when a close states no speed | `gripper_close_speed_default_increments` (5000), converted | `gripper_acceleration_default_increments` (75), converted | PLR | `iSWAPConfiguration` (`features/iswap.py`). |
 
@@ -261,7 +261,7 @@ Reads (`R*`, `Q*`, `VW`), pressure-monitoring and sensor setup (`AC`, `AF`, `AN`
 
 Only three Y distances (one sample at 100 mm) and two Z distances exist, so mild jerk on Y or Z can't be ruled out.
 
-### 8.3 Other factors (documented; not yet used by the page)
+### 8.3 Other factors (command overheads are now used by the page: 8.6)
 - **Communication round trip:** read replies arrive in ≈9–21 ms (median `X0 RF` 9 ms, `H0 RH` 7 ms, `C0 RX` 21 ms). This is the only delay common to all commands.
 - **Command overhead is command-specific.** For the same X move, the 96-head's `C0 EM` takes ≈0.36 s longer than a channel `C0 JX` (overheads ≈0.48 s vs ≈0.12 s after the fitted move time).
 - **In tip commands, short X moves overlap the Z stroke.** A `C0 TP` after a `C0 TR` takes 6.331 s for 9 mm and 6.335 s for 18 mm, where the X-arm alone needs ≈0.1 s more for the longer move. Above ≈20 mm the X distance shows again. The firmware appears to move X while Z is still travelling. The player runs the phases in sequence, so tip strokes are drawn slightly long for short moves.
@@ -360,10 +360,87 @@ d = a[group] + b_v · volume time + b_m · mix time + b_z · Tz(stroke) + b_xy �
 The acceleration agrees with PLR's `default_z_acceleration` (800 mm/s²). The speed is loosely determined (150–200 mm/s across group keys), because the strokes form two clusters.
 
 ### 8.5 Next fits the same data supports
-- A decisive Y-ripple run (above), and 96-head Y and Z over many distances.
-- iSWAP get/put/park against their parameters. `C0 PP`, `PR` and `PG` are black boxes, but 110k timed examples with positions constrain their internal phases.
-- Per-command overheads for the page, so a drawn command takes as long as the real one.
+- A decisive Y-ripple run (above).
+- iSWAP park (`C0 PG`), and the far-right iSWAP path (8.8).
 - The X/Z overlap in tip commands, as a phase overlap in the player.
+
+### 8.6 Fixed time per command (what a command takes beyond the drawn motion)
+
+**Reproduce:** `python tools/hxusbcomm_fixed.py <trace folder>`.
+
+**Method.** Each command is timed exactly as the page draws it, using the constants in `motion.py`:
+- X on the S-curve;
+- channel Y at 300 mm/s and 900 mm/s², the channels setting off 0.118 s apart;
+- Z at 150 mm/s and 800 mm/s²;
+- the aspiration dwell (volume ÷ flow + settling time), and the swap-speed exit.
+
+The measured duration minus that drawn time is the command's fixed time. It's fitted as a linear model of the parameters that plausibly set it. The page plays it as a pause before the motion; *where* in the command the firmware spends it isn't measured (HEUR).
+
+| Command | Model (FIT) | n | R² of the fixed time | RMS | AIC | BIC | Constant only: RMS / AIC | Whole-duration R², median miss |
+|---|---|---|---|---|---|---|---|---|
+| `C0 AS` | 1.879 s + 0.979 × mix volume time + 0.557 s × mix cycles + 6.761 × transport-air time | 228,477 | 0.641 | 521 ms | −297,806 | −297,765 | 870 ms / −63,563 | 0.912, 65 ms |
+| `C0 TP` | 1.460 s, **plus the press drawn as motion** (0.0792 s/mm of `tp − tz`, below) | 48,304 | 0.763 | 43 ms | −304,403 | −304,386 | 88 ms / −234,948 | 0.852, 11 ms |
+| `C0 TR` | 3.059 s (median; channels add 0.010 ± 0.003 s, R² 0.0002: left out) | 54,290 | 0.000 | 230 ms | −159,714 | −159,705 | same | 0.346, 224 ms |
+| `C0 ZA` | 0.14 s (median of 1,783; the channels were mostly already up) | 1,783 | — | — | — | — | — |
+| `C0 EP` (96-head tips on) | 4.938 s (median, against PLR's head drive defaults; IQR 4.934–4.947) | 155 | — | — | — | — | — |
+| `C0 ER` (96-head tips off) | 4.490 s (median; IQR 4.281–4.499) | 5,867 | — | — | — | — | — |
+| `H0 YA/ZA` (96-head moves) | 0.11 s: an `H0 YP` that travels nothing (10th percentile of 31); HEUR by analogy | — | — | — | — | — | — |
+| `C0 JY/JZ/FY`, `X0 XP`, iSWAP `R0` steps | 0.065 s: a 1 mm `C0 KY` jog less its travel; HEUR by analogy | — | — | — | — | — | — |
+| `C0 ZT`/`ZS` (CO-RE tools) | as `C0 TP`/`C0 TR`; HEUR, no recorded counterpart | — | — | — | — | — | — |
+
+- **Why these R² look modest:** they measure the fixed time, which is what's left after the drawn motion, and it spreads little (tip pick-up: 88 ms). Against the whole duration the page's timing reaches R² 0.91 (aspirate) and 0.85 (tip pick-up). Tip drop stays weak (0.35): what makes some drops slower isn't found.
+- **Channel count is left out.** Nearly every recorded command uses 7 or 8 channels, so its coefficient tracks protocols: +0.04 s in one extraction, −0.27 s in another differing by 0.1% of rows.
+- **Aspirate:** the median |residual| is 65 ms; the RMS is inflated by a few protocols (liquid-level detection, 34 rows, which the page doesn't draw). Mixing happens at the bottom, so its two terms are added to the dwell, not the pause.
+- **Tip press:** the fixed time of `C0 TP` grows 0.0792 s per mm of `tp − tz` beyond that distance at the Z drive's speed. The page therefore goes down to `tp` at the drive's speed and presses on to `tz` at 1 / (0.0792 + 1/150) = **11.6 mm/s**. Only two press lengths are recorded (8 and 10 mm).
+
+### 8.7 The 96-head
+
+`C0 EM/EP/ER` following another head command (7,182 pairs, 86 groups). Z heights are fixed within each group, so head Z can't be identified here. The head's X and Y overlap (ΔAIC ≈ 11,100 over X-then-Y at the same constants).
+
+| Model | R² within | RMS | AIC | BIC |
+|---|---|---|---|---|
+| no travel terms | 0 | 268.7 ms | −18,705 | — |
+| X then head Y, + Z, PLR defaults | −0.001 | 268.8 ms | −18,698 | −18,107 |
+| **max(X, head Y) + Z, PLR defaults (Y 390.6 mm/s, 546.9 mm/s²; Z 85 mm/s, 400 mm/s²), no free parameter** | **0.787** | **124.1 ms** | **−29,803** | **−29,211** |
+| max(X, head Y 300, 1500) + Z PLR, head Y fitted | 0.855 | 102.2 ms | −32,594 | −32,002 |
+
+The fitted head constants slide along the grid edges (speed and acceleration trade off, and few moves reach cruise), so the page keeps **PLR's head defaults**. The data agrees with them (R² 0.79 with no free parameter); what it adds is the overlap of X and Y and the fixed times in 8.6.
+
+### 8.8 The iSWAP
+
+Venus sends whole moves (`C0 PP` get, `C0 PR` put); PLR sends the iSWAP's steps one by one (`R0` commands, each carrying its own speeds). So these fits describe the device, but don't map one-to-one onto PLR's steps.
+
+| Command | Model (fixed effect per target site and grip parameters) | n | Groups | R² within | RMS | AIC | BIC |
+|---|---|---|---|---|---|---|---|
+| `C0 PP` | max(X, Y), Y 400 mm/s, 1200 mm/s² | 33,727 | 158 | 0.650 | 229 ms | −99,149 | −97,818 |
+| `C0 PP` | **X then Y, Y 300 mm/s, 800 mm/s²** | 33,727 | 158 | **0.923** | **107 ms** | **−150,299** | **−148,967** |
+| `C0 PR` | max(X, Y), Y 300 mm/s, 200 mm/s² | 47,384 | 201 | 0.507 | 120 ms | −200,479 | −198,717 |
+| `C0 PR` | **X then Y, Y 300 mm/s, 800 mm/s²** | 47,384 | 201 | **0.815** | **74 ms** | **−246,796** | **−245,034** |
+
+- **The iSWAP moves X first, then Y** (ΔAIC ≈ 51,000 for gets and ≈ 46,000 for puts). This is unlike the channels and the 96-head, which overlap X and Y.
+- **iSWAP Y ≈ 300 mm/s, 800 mm/s² (FIT).** PLR sends 4,751 increments/s ≈ 220 mm/s, which it documents as 68% of the firmware's default (≈ 323 mm/s). Venus evidently runs near the documented default. PLR's plans carry their own speeds, so the page already plays PLR's slower Y; that is what PLR would do on the device.
+- **Fixed times of the whole moves:** `C0 PP` 4.93 s and `C0 PR` 4.54 s for targets on the deck.
+- **Far-right targets (X > 850 mm) take ≈ 8.5 s longer** (13.49 / 12.85 s fixed, 6,575 + 10,640 moves). They're all at X ≈ 890–910 mm, Y ≈ 244 or 421 mm, most likely off-deck or extended-reach positions where the firmware takes a longer arm path. Not modelled further.
+- **Not yet known:** how a whole move's fixed time divides among PLR's `R0` steps (gripper open/close, wrist, Z). The page gives each step the generic 0.065 s.
+
+### 8.9 The whole timing model, at a glance
+
+| Factor | Value used by the page | Tag | Fit quality | PLR's value | Known for sure? |
+|---|---|---|---|---|---|
+| X-arm | S-curve 600 mm/s, 1297 mm/s², 3210 mm/s³ | FIT | R² 0.976, RMS 23 ms, AIC −640 (vs trapezoid −567) | none stated | Jerk yes; speed/acceleration loose above ≈450 / ≈1100 |
+| Channel Y travel | trapezoid 300 mm/s, 900 mm/s² | FIT | RMS 4.7 ms on jogs; slope 1.01 in the full model | 250 mm/s | Yes for 1–10 mm; one 100 mm sample |
+| Channel Y ripple | 0.118 s per channel after the first, channel order | FIT | best DS model: R² 0.9883, RMS 42.5 ms, AIC −1,366,602 | none (moves together) | Size yes (4/7/8 channels); order and distance dependence no |
+| X and channel Y | overlap: max(X, Y) | FIT | AS, each with a fitted Y cost: R² 0.993 vs X-then-Y 0.983 (ΔAIC ≈ 212,000) | the simulator: at once | Yes |
+| Channel Z | trapezoid 150 mm/s, 800 mm/s² | FIT (speed), PLR (acceleration) | R² 0.986, RMS 33 ms, AIC −224,741 | 125 mm/s, 800 mm/s² | Acceleration yes; speed loose, 150–200 |
+| Aspiration dwell | volume ÷ flow + settle | FW | slope 0.99–1.02 | same | Yes |
+| Mixing | 0.979 × 2·cycles·volume ÷ speed + 0.557 s per cycle | FIT | part of the AS model | not drawn before | Yes (20k mixes) |
+| Tip press | 11.6 mm/s from `tp` to `tz` | FIT | TP fixed-time R² 0.76, RMS 43 ms (whole duration R² 0.85) | none (straight to `tz`) | Two press lengths only |
+| Fixed times | per command, 8.6 | FIT / HEUR | 8.6 | none | Measured for AS, TP, TR, ZA, EP, ER; by analogy for the rest; when in the command it falls isn't known |
+| 96-head X and Y | overlap: max(X, Y) | FIT | ΔAIC ≈ 11,100 over X-then-Y | the simulator: at once | Yes |
+| 96-head Y, Z | PLR defaults (390.6 / 546.9; 85 / 400) | PLR | R² 0.79 with no free parameter | same | Not identified better by the traces |
+| iSWAP X and Y | X then Y | FIT | ΔAIC ≈ 46,000–51,000 | PLR plans its own step order | Yes, for Venus's whole moves |
+| iSWAP Y | PLR's own step speeds (≈220 mm/s) | PLR | Venus: 300 mm/s, 800 mm/s² (R² 0.92 / 0.82) | ≈220 mm/s | Yes for Venus; PLR deliberately slower |
+| iSWAP step fixed time | 0.065 s per `R0` step | HEUR | — | none | No: whole moves measured (4.9 / 4.5 s), not their split
 
 ## 7. Liquid, as drawn (not a firmware command)
 A vessel's cavity is tinted from white to orange by volume ÷ capacity, stepping to 35% for any liquid at all (PR #1378 page, `live.js` `refreshOverlays`; not ours). It changes when the model's state update arrives, after the command. Tips show their contents only in the 2D channel panel. Moving liquid (a surface lowered over the dwell, a column rising in the tip) is not drawn yet. The data for it are PLR's (`Container.compute_height_from_volume`) plus the `C0 AS` fields above.
