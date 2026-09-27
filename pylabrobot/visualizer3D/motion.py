@@ -78,6 +78,8 @@ ASPIRATE_FIXED_PER_TRANSPORT_AIR_TIME = 6.761  # s per s of transport air at the
 MIX_VOLUME_TIME_FACTOR = 0.979
 MIX_PER_CYCLE = 0.557  # s
 TIP_PICKUP_FIXED = 1.460  # s
+# Held at the bottom, the tip on the shaft, all but a simple command's handling (as a drop's, HEUR).
+TIP_PICKUP_HOLD = TIP_PICKUP_FIXED - 0.065  # s
 TIP_DROP_FIXED = 3.059  # s, the median; the channel count adds nothing measurable
 # Where in a drop that time goes is not in the traces, which time whole commands. It is played at
 # the bottom, as the hold while the tips are pushed off (HEUR, from watching the device), all but a
@@ -337,7 +339,10 @@ def _tip_pickup(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[s
       for c in involved
     },
   )
-  request["fixed"] = TIP_PICKUP_FIXED
+  # The channels hold at the bottom once the tips are on: the pick-up's fixed time, bar the
+  # command's handling before it moves.
+  request["dwell"] = TIP_PICKUP_HOLD
+  request["fixed"] = round(TIP_PICKUP_FIXED - TIP_PICKUP_HOLD, 3)
   # At the bottom of the stroke each channel takes the tip in the spot under it onto its shaft.
   for c in involved:
     spot, shaft = frames.spot_at(*_positions(params, c)), frames.shaft(c)

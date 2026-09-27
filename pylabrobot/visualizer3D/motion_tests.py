@@ -144,7 +144,9 @@ class DecoderTests(unittest.IsolatedAsyncioTestCase):
     )
     await self.star.pipettes.drop_tips(spots)
     by_kind = {r["kind"]: r for r in self.requests}
-    self.assertEqual(by_kind["tip_pickup"]["fixed"], motion.TIP_PICKUP_FIXED)
+    pickup = by_kind["tip_pickup"]
+    self.assertAlmostEqual(pickup["fixed"] + pickup["dwell"], motion.TIP_PICKUP_FIXED, places=3)
+    self.assertGreater(pickup["dwell"], 1.0)
     self.assertGreaterEqual(by_kind["aspirate"]["fixed"] + 0.001, motion.ASPIRATE_FIXED)
     # A drop spends its fixed time at the bottom, holding while the tips are pushed off.
     drop = by_kind["tip_drop"]
