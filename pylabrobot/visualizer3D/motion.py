@@ -64,9 +64,15 @@ CHANNEL_Y_STAGGER = 0.118  # s
 # mm/s, as the recorded strokes form two clusters. PLR's `default_z_speed` is 125 mm/s.
 CHANNEL_Z_SPEED = 150.0  # mm/s
 # A tip pick-up goes down to `tp` at the Z drive's speed and presses on to `tz` at this one: the
-# fixed time of `C0 TP` grows 0.0792 s per mm of `tp - tz` beyond that distance at CHANNEL_Z_SPEED,
-# i.e. 1 / (0.0792 + 1 / 150) mm/s (R^2 0.76; only 8 and 10 mm recorded).
-TIP_PRESS_SPEED = 11.6  # mm/s
+# fixed time of `C0 TP` grows 0.0871 s per mm of `tp - tz` (R^2 0.83 with TIP_PICKUP_DOWN_FROM; only
+# 8 and 10 mm recorded).
+TIP_PRESS_SPEED = 11.5  # mm/s
+# A tip pick-up lowers its channels before the crossing has finished: from this share of the
+# crossing's time (`tools/hxusbcomm_fixed.py`, delta AIC 7,234 over the two in sequence). Moving 18
+# rather than 9 mm adds 116 ms of X travel but 7 ms to the command, 27 mm adds 198 ms but 112 ms.
+# Nearly every recorded pick-up moves 9 mm, so the share is loosely determined. Not measured for
+# drops: hardly any recorded drop travels without a Y move.
+TIP_PICKUP_DOWN_FROM = 0.82
 
 # What a command takes beyond the motion the page draws: the measured duration less the drawn one,
 # as a model of the command's own parameters (MOTION_PROFILES.md 8.6, `tools/hxusbcomm_fixed.py`). Played as a pause before
@@ -78,10 +84,11 @@ ASPIRATE_FIXED_PER_TRANSPORT_AIR_TIME = 6.761  # s per s of transport air at the
 # Mixing happens at the bottom, so it adds to the dwell: its volume time, and a turnaround per cycle.
 MIX_VOLUME_TIME_FACTOR = 0.979
 MIX_PER_CYCLE = 0.557  # s
-TIP_PICKUP_FIXED = 1.460  # s
+TIP_PICKUP_FIXED = 4.421  # s: the tip clamped and checked, beyond the drawn motion
 # Held at the bottom, the tip on the shaft, all but a simple command's handling (as a drop's, HEUR).
 TIP_PICKUP_HOLD = TIP_PICKUP_FIXED - 0.065  # s
-TIP_DROP_FIXED = 3.059  # s, the median; the channel count adds nothing measurable
+TIP_DROP_FIXED = 5.009  # s, the mean. The channel count adds 0.21 s each (R^2 0.15), but 7 against 8
+# channels is also one protocol against the others, so it is left out.
 # Where in a drop that time goes is not in the traces, which time whole commands. It is played at
 # the bottom, as the hold while the tips are pushed off (HEUR, from watching the device), all but a
 # simple command's handling before the motion.
@@ -362,6 +369,7 @@ def _tip_pickup(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[s
   )
   # The channels hold at the bottom once the tips are on: the pick-up's fixed time, bar the
   # command's handling before it moves.
+  request["down_from"] = TIP_PICKUP_DOWN_FROM
   request["dwell"] = TIP_PICKUP_HOLD
   request["fixed"] = round(TIP_PICKUP_FIXED - TIP_PICKUP_HOLD, 3)
   # At the bottom of the stroke each channel takes the tip in the spot under it onto its shaft.
@@ -479,11 +487,48 @@ def _aspirate(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str
     values = _as_list(params[field])
     return {c: _tenths(values[i]) for i, c in enumerate(involved)}
 
+  def raw(field: str, default: int = 0) -> Dict[int, int]:
+    values = _as_list(params.get(field, [default] * len(involved)))
+    return {c: int(values[i]) for i, c in enumerate(involved)}
+
+  def optional(field: str) -> Dict[int, float]:
+    return per_channel(field) if field in params else {c: 0.0 for c in involved}
+
   surface = per_channel("zl")
-  immersion = per_channel("ip")
   floor = per_channel("zx")
   swap_speed = per_channel("de")
-  down = {c: max(surface[c] - immersion[c], floor[c]) for c in involved}
+  # Into the liquid by the immersion depth, or above it when the direction says so (`it` 1); never
+  # below the lowest the command allows.
+  direction = raw("it")
+  immersion = optional("ip")
+  down = {
+    c: max(surface[c] + (immersion[c] if direction[c] == 1 else -immersion[c]), floor[c])
+    for c in involved
+  }
+  # While it draws, the tip follows the sinking surface down by `fp`, at a steady pace over the
+  # time the volume takes. The narrower lower section `zu`/`zr` changes that pace on the device in
+  # a way the driver does not document, so it is not drawn.
+  following = optional("fp")
+  volumes, speeds = per_channel("av"), per_channel("as_")
+  draw_time = {c: volumes[c] / speeds[c] if speeds[c] else 0.0 for c in involved}
+  followed = {c: max(down[c] - following[c], floor[c]) for c in involved}
+  # Out of the liquid at the swap speed, then up by the pull-out distance before the transport air
+  # is drawn: from the surface (HEUR - the driver says only "rise before drawing transport air"),
+  # at the swap speed too (HEUR).
+  pull_out = optional("po")
+
+  def extras(c: int) -> Dict[str, float]:
+    extra: Dict[str, float] = {}
+    if followed[c] < down[c] - 0.05 and draw_time[c] > 0:
+      extra["follow"] = frames.lowest_point_z(c, followed[c])
+      extra["follow_speed"] = round((down[c] - followed[c]) / draw_time[c], 3)
+    if swap_speed[c] > 0:
+      extra["leave"] = frames.lowest_point_z(c, surface[c])
+      extra["leave_speed"] = swap_speed[c]
+      if pull_out[c] > 0:
+        extra["pull_out"] = frames.lowest_point_z(c, surface[c] + pull_out[c])
+    return extra
+
   request = _stroke(
     frames,
     "aspirate",
@@ -492,15 +537,10 @@ def _aspirate(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str
     traverse=_tenths(params["th"]),
     down={c: frames.lowest_point_z(c, down[c]) for c in involved},
     end={c: frames.lowest_point_z(c, _tenths(params["te"])) for c in involved},
-    # Out of the liquid at the command's swap speed, before rising at the drive's own.
-    extra={
-      c: {"leave": frames.lowest_point_z(c, surface[c]), "leave_speed": swap_speed[c]}
-      for c in involved
-      if swap_speed[c] > 0
-    },
+    extra={c: extras(c) for c in involved},
   )
   # As long as the slowest channel takes to draw its volume, settle and mix.
-  volumes, speeds, settle = per_channel("av"), per_channel("as_"), per_channel("wt")
+  settle = per_channel("wt")
   cycles = {c: int(v) for c, v in zip(involved, _as_list(params.get("mc", [0] * len(involved))))}
   mix_volumes = per_channel("mv") if "mv" in params else {c: 0.0 for c in involved}
   mix_speeds = per_channel("ms") if "ms" in params else {c: 0.0 for c in involved}

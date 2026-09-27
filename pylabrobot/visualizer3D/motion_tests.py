@@ -179,6 +179,42 @@ class DecoderTests(unittest.IsolatedAsyncioTestCase):
     self.assertLess(channel["press"], channel["down"])
     self.assertEqual(channel["press_speed"], motion.TIP_PRESS_SPEED)
 
+  async def test_an_aspiration_follows_the_surface_and_pulls_out(self):
+    """Immersion, its direction, surface following and the pull-out, read off the command."""
+    sent: List[Dict[str, Any]] = []
+    listen = self.star.driver.motion_listener
+
+    async def keep(module: str, command: str, params: Dict[str, Any]) -> None:
+      if module + command == "C0AS":
+        sent.append(dict(params))
+      await listen(module, command, params)
+
+    self.star.driver.motion_listener = keep
+    await self.star.pipettes.pick_up_tips([self.rack.get_item("A7")])
+    await self.star.pipettes.aspirate([self.source.get_item("A7")], [100.0])
+    params = sent[-1]
+
+    # PLR sends the lowest allowed height as the surface itself; room below it, so immersion shows.
+    floor = [f"{int(z) - 200:04}" for z in params["zl"]]
+
+    def decoded(**changed: Any) -> Dict[str, Any]:
+      request = star_motion(self.star.driver, "C0", "AS", {**params, "zx": floor, **changed})
+      assert request is not None
+      return request["channels"][0]
+
+    plain = decoded(ip=["0020"], it=["0"], fp=["0000"], po=["0000"])
+    deeper = decoded(ip=["0050"], it=["0"], fp=["0000"], po=["0000"])
+    above = decoded(ip=["0050"], it=["1"], fp=["0000"], po=["0000"])
+    self.assertAlmostEqual(plain["down"] - deeper["down"], 3.0, places=2)
+    self.assertAlmostEqual(above["down"] - deeper["down"], 10.0, places=2)
+    self.assertNotIn("follow", plain)
+    self.assertNotIn("pull_out", plain)
+
+    following = decoded(ip=["0020"], it=["0"], fp=["0040"], po=["0100"])
+    self.assertAlmostEqual(following["down"] - following["follow"], 4.0, places=2)
+    self.assertGreater(following["follow_speed"], 0.0)
+    self.assertAlmostEqual(following["pull_out"] - following["leave"], 10.0, places=2)
+
   async def test_a_read_moves_nothing(self):
     self.assertIsNone(star_motion(self.star.driver, "C0", "RY", {}))
     self.assertIsNone(star_motion(self.star.driver, "C0", "XX", {}))

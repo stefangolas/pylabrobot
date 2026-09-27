@@ -19,6 +19,9 @@ import { motionProfile } from "./motion_profile.js";
 // A move shorter than this, in mm, is not made at all.
 const STILL = 0.05;
 
+// Where the crossing is among the phases: after the fixed time and the rise to traverse height.
+const ACROSS = 2;
+
 /**
  * Where a resource sits once turned about Z from `from` to `to` degrees, keeping `pivot` - a point
  * in its own frame - where it was: what `Resource.rotate_to(z=..., pivot_coordinate=...)` does.
@@ -117,7 +120,7 @@ export function createPlayer({
 
   // The phases of a motion, in order. Each looks at where things are when its turn comes and
   // returns the moves it starts together; an empty one is skipped.
-  function phases(request) {
+  function phases(request, timing = { across: 0 }) {
     const drives = request.drives ?? {};
     const channels = (key) =>
       (request.channels ?? [])
@@ -141,7 +144,12 @@ export function createPlayer({
         const moves = [];
         const arm = request.arm;
         const armIndex = arm ? indexOf(arm.name) : undefined;
+        // How long the crossing takes, for a descent that sets off before it has finished.
+        timing.across = 0;
         if (armIndex !== undefined && Math.abs(readAxis(armIndex, 0) - arm.x) >= STILL) {
+          const dx = arm.x - readAxis(armIndex, 0);
+          timing.across = motionProfile(dx, drives.x?.speed, drives.x?.acceleration, drives.x?.jerk)
+            .duration;
           moves.push(() => move(armIndex, 0, arm.x, drives.x));
         }
         // The channels set off one after another, in channel order, each `stagger` after the last.
@@ -150,6 +158,9 @@ export function createPlayer({
           .filter((c) => Math.abs(readAxis(c.index, 1) - c.y) >= STILL)
           .sort((a, b) => (a.channel ?? 0) - (b.channel ?? 0));
         moving.forEach((c, rank) => {
+          const dy = c.y - readAxis(c.index, 1);
+          const travel = motionProfile(dy, drives.y?.speed, drives.y?.acceleration).duration;
+          timing.across = Math.max(timing.across, rank * stagger + travel);
           moves.push(async () => {
             if (rank > 0 && stagger > 0) await pause(rank * stagger);
             await move(c.index, 1, c.y, drives.y);
@@ -196,7 +207,11 @@ export function createPlayer({
                 }
               });
             }
-            await Promise.all([pause(request.dwell), ...seating]);
+            // An aspiration's tips follow the sinking surface down, at a steady pace, while it draws.
+            const following = channels("follow")
+              .filter((c) => Math.abs(readAxis(c.index, 2) - c.follow) >= STILL)
+              .map((c) => move(c.index, 2, c.follow, { speed: c.follow_speed }));
+            await Promise.all([pause(request.dwell), ...seating, ...following]);
           },
         ];
       },
@@ -208,6 +223,18 @@ export function createPlayer({
           .map(
             (c) => () =>
               move(c.index, 2, c.leave, {
+                speed: c.leave_speed,
+                acceleration: drives.z?.acceleration,
+              }),
+          ),
+
+      // Up by the pull-out distance before the transport air is drawn, at the swap speed.
+      () =>
+        channels("pull_out")
+          .filter((c) => c.pull_out - readAxis(c.index, 2) >= STILL)
+          .map(
+            (c) => () =>
+              move(c.index, 2, c.pull_out, {
                 speed: c.leave_speed,
                 acceleration: drives.z?.acceleration,
               }),
@@ -270,9 +297,23 @@ export function createPlayer({
     async play(request) {
       playing++;
       try {
-        for (const phase of phases(request)) {
-          const moves = phase();
-          if (moves.length) await Promise.all(moves.map((start) => start()));
+        const timing = { across: 0 };
+        const list = phases(request, timing);
+        for (let i = 0; i < list.length; i++) {
+          const moves = list[i]();
+          if (!moves.length) continue;
+          const crossing = Promise.all(moves.map((start) => start()));
+          // A descent that sets off before the crossing has finished (`down_from`, a share of the
+          // crossing's time): the firmware lowers a tip pick-up's channels while the arm still
+          // travels. Otherwise each phase waits for the one before it.
+          if (i === ACROSS && request.down_from > 0 && request.down_from < 1 && timing.across > 0) {
+            await pause(request.down_from * timing.across);
+            const down = list[i + 1]();
+            await Promise.all([crossing, ...down.map((start) => start())]);
+            i++;
+            continue;
+          }
+          await crossing;
         }
       } finally {
         playing--;

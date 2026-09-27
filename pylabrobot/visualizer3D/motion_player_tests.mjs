@@ -190,6 +190,56 @@ test("a tip pick-up presses the last stretch at its own slow speed", async () =>
   assert.ok(seconds > 1.0, `10 mm at 10 mm/s took only ${seconds}`);
 });
 
+test("an aspiration follows the surface down while it draws, then pulls out", async () => {
+  const world = fakeWorld(start());
+  const aspirate = {
+    ...pickUp,
+    kind: "aspirate",
+    arm: null,
+    attach: [],
+    dwell: 2,
+    channels: [
+      {
+        name: "ch0",
+        channel: 0,
+        y: 150,
+        down: -100,
+        follow: -104,
+        follow_speed: 2,
+        leave: -100,
+        leave_speed: 50,
+        pull_out: -90,
+        end: 10,
+      },
+    ],
+  };
+  const seconds = await playOut(createPlayer(world.deps()), aspirate);
+  const zs = world.log.filter((e) => e.name === "ch0" && e.axis === 2).map((e) => e.value);
+  const lowest = Math.min(...zs);
+  assert.ok(Math.abs(lowest + 104) < 0.01, `it went down to ${lowest}, not the followed -104`);
+  // 4 mm at 2 mm/s fills the 2 s dwell: steadily, not in a jump.
+  const following = world.log.filter((e) => e.axis === 2 && e.value < -100 && e.value > -104);
+  assert.ok(following.length > 60, "it jumped rather than followed");
+  // After the lowest point: out to the surface, then on up through the pull-out stretch.
+  const after = zs.slice(zs.indexOf(lowest));
+  assert.ok(after.filter((z) => z > -95 && z < -90).length > 3, "it did not pull out steadily");
+  assert.equal(world.at("ch0")[2], 10);
+  assert.ok(seconds > 2, `took only ${seconds}`);
+});
+
+test("a pick-up starts down before its crossing has finished", async () => {
+  const request = { ...pickUp, attach: [], down_from: 0.5 };
+  const world = fakeWorld(start());
+  const overlapped = await playOut(createPlayer(world.deps()), request);
+  const sequence = await playOut(createPlayer(fakeWorld(start()).deps()), { ...request, down_from: 0 });
+  assert.ok(overlapped < sequence - 0.1, `overlapped ${overlapped}, in sequence ${sequence}`);
+  // The channel was going down while the arm still moved.
+  const firstDown = world.log.findIndex((e) => e.name === "ch0" && e.axis === 2);
+  const lastArm = world.log.findLastIndex((e) => e.name === "arm");
+  assert.ok(firstDown < lastArm, "the descent waited for the arm");
+  assert.deepEqual(world.at("arm"), [300, 0, 0]);
+});
+
 test("a page in the background jumps to the end and still hands the tips over", async () => {
   const world = fakeWorld(start());
   const player = createPlayer(world.deps(() => true));
