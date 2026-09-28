@@ -1,0 +1,22 @@
+{
+ "model": "eppendorf_tube_1500uL_Vb",
+ "units": "m",
+ "up": "Z",
+ "source": "https://github.com/stefangolas/LabwareModels/blob/main/eppendorf/Eppendorf_1.5mL.gltf (Onshape export)",
+ "source_sha256": "1170f2d77e0fa158411db375ce8789e449b0850a5fab2343800a91c0f2e75cbf",
+ "transform": "+90 deg about X (the repository's GLB->STL rotation), then +4.925 mm in X and Y: tube axis at the centre of PLR's 9.85 mm footprint, bottom at Z 0",
+ "bounds_mm": [
+  [
+   -1.471,
+   -1.48,
+   0.0
+  ],
+  [
+   35.408,
+   11.33,
+   42.84
+  ]
+ ],
+ "triangles": 5040,
+ "notes": "Cap modelled open, lying off the tube to +X. Finish is a visual estimate (clear polypropylene)."
+}
