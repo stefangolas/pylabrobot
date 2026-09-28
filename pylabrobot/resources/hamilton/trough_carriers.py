@@ -46,6 +46,9 @@ def Trough_CAR_5R60_A00(name: str) -> TroughCarrier:
   Hamilton name: 'RGT_CAR5X60'.
   Trough carrier for 5x 60ml troughs. 1 tracks(T) wide.
   Carries hamilton_1_trough_60mL_Vb
+
+  Five sites on a 96 mm pitch, as Hamilton's template (RGT_CAR_5R60_A00.tml: Y 6.5 + 96 i, Z 63.5)
+  has them; the first site's position and the heights are measured.
   """
   return TroughCarrier(
     name=name,
@@ -55,10 +58,7 @@ def Trough_CAR_5R60_A00(name: str) -> TroughCarrier:
     sites=create_homogeneous_resources(
       klass=ResourceHolder,
       locations=[
-        Coordinate(1.5, 7.0, 62.0 + 1.5),
-        Coordinate(1.5, 103.0, 62.0 + 1.5),
-        Coordinate(1.5, 199.0, 62.0 + 1.5),
-        Coordinate(1.5, 302.0, 62.0 + 1.5),
+        Coordinate(1.5, 7.0 + 96.0 * i, 62.0 + 1.5) for i in range(5)
       ],  # measured 62 to bottom of holder, but there is a 1.5mm pedestal
       resource_size_x=19.0,
       resource_size_y=90.0,
