@@ -95,6 +95,9 @@ export function structureEdgeStyle(depth) {
 
 export const LIQUID = 0xf39c12;
 export const VESSEL_EMPTY = 0xffffff; // nothing in it reads as white, as it does on a plan
+// How much narrower the liquid is drawn than the cavity it fills, as a fraction of its width: enough
+// that the two sides are not one surface fighting for depth, too little to see as a gap.
+export const LIQUID_INSET = 0.02;
 export const VESSEL_RIM = 0x5c666e;
 // Looking straight down, a tip is a circle and the only thing worth reading off it is whether the
 // spot it stands in is still filled. The existing visualizer answers that with a green disc, and
@@ -254,17 +257,11 @@ export const HALO_INK = "#1f2529";
 // across the deck, so it is the whole disc and not only the coin at its centre.
 export const HALO_TIPPED_BACKGROUND = "#b9edd9";
 
-// Adaptive quality: the page steps its own cost down while frames are slow and back up once they
-// are fast again, averaged over drawn frames. A step down after QUALITY_SETTLE_MS of slow frames,
-// a step up after QUALITY_RECOVER_MS of fast ones, and a level found slow is not returned to for
-// QUALITY_HOLD_MS, so a machine slow at full and fast at low does not swing between the two.
-// A frame is costed by the gap since the last one as well as by its own work, and the gap is
-// never under the display's refresh, so "fast" sits above a sixty-hertz frame.
+// Adaptive quality: the page steps its own cost down while frames are slow, averaged over drawn
+// frames, a step after QUALITY_SETTLE_MS of slow ones, and stays where it settles (frame.js says
+// why). A frame is costed by the gap since the last one as well as by its own work.
 export const QUALITY_SLOW_MS = 33;
-export const QUALITY_FAST_MS = 20;
 export const QUALITY_SETTLE_MS = 1000;
-export const QUALITY_RECOVER_MS = 4000;
-export const QUALITY_HOLD_MS = 60000;
 // The first frames after a scene arrives are spent compiling pipelines and read as slow on any
 // machine, so nothing is judged until this long after the scene came.
 export const QUALITY_WARMUP_MS = 3000;

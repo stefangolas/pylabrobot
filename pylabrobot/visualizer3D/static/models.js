@@ -103,12 +103,62 @@ function replaceInScene(root, index) {
 // glTF says metres and Y-up; a resource that means something else says so in its declaration.
 const MESH_UNITS = { mm: 1, cm: 10, m: 1000 };
 
+const AXIS_INDEX = { x: 0, y: 1, z: 2 };
+
+/**
+ * Change what the declaration says to, material by material. With `color`, the material is drawn
+ * in that colour. Otherwise it is left out: every face of it, or with `axis` and `below` only its
+ * faces square to that axis whose middle lies below it, in the geometry's own units and axes. The
+ * file's geometry and materials are shared, so what is edited is a copy.
+ */
+function applyEdits(scene, edits) {
+  if (!edits?.length) return;
+  scene.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const rule of edits) {
+      if (o.material?.name !== rule.material) continue;
+      if (rule.color !== undefined) {
+        o.material = o.material.clone();
+        o.material.color.set(rule.color);
+        continue;
+      }
+      const axis = AXIS_INDEX[rule.axis];
+      if (axis === undefined || !Number.isFinite(rule.below)) {
+        o.userData.hidden = true;
+        o.visible = false;
+        continue;
+      }
+      const geometry = o.geometry.index ? o.geometry.clone() : o.geometry.toNonIndexed();
+      const position = geometry.attributes.position;
+      const corner = (k) => (geometry.index ? geometry.index.getX(k) : k);
+      const count = geometry.index ? geometry.index.count : position.count;
+      const a = new THREE.Vector3();
+      const b = new THREE.Vector3();
+      const c = new THREE.Vector3();
+      const normal = new THREE.Vector3();
+      const kept = [];
+      for (let k = 0; k < count; k += 3) {
+        a.fromBufferAttribute(position, corner(k));
+        b.fromBufferAttribute(position, corner(k + 1));
+        c.fromBufferAttribute(position, corner(k + 2));
+        normal.subVectors(c, b).cross(a.clone().sub(b)).normalize();
+        const square = Math.abs(normal.getComponent(axis)) > 0.9;
+        const middle = (a.getComponent(axis) + b.getComponent(axis) + c.getComponent(axis)) / 3;
+        if (!(square && middle < rule.below)) kept.push(corner(k), corner(k + 1), corner(k + 2));
+      }
+      geometry.setIndex(kept);
+      o.geometry = geometry;
+    }
+  });
+}
+
 // A copy of the file's scene in our units and Z-up: Y-up is glTF's default, and a Z-up file is
 // already in our own convention.
-function orient(gltf, scale, up) {
+function orient(gltf, scale, up, edits) {
   const scene = gltf.scene.clone(true);
   scene.scale.setScalar(scale);
   if (up === "Y") scene.rotation.x = Math.PI / 2;
+  applyEdits(scene, edits);
   return scene;
 }
 
@@ -135,15 +185,15 @@ function asModelled(material) {
  * Made for a count of instances and nothing about which ones: `placeInstancedModel` puts in where
  * each stands and which resource it is, so the same meshes serve scene after scene.
  */
-function makeInstancedModel(key, count, gltf, scale, up) {
+function makeInstancedModel(key, count, gltf, scale, up, edits) {
   const carrier = new THREE.Group();
-  const scene = orient(gltf, scale, up);
+  const scene = orient(gltf, scale, up, edits);
   carrier.add(scene);
   carrier.updateMatrixWorld(true);
 
   const built = { key, meshes: [] };
   scene.traverse((o) => {
-    if (!o.isMesh) return;
+    if (!o.isMesh || o.userData.hidden) return;
     // One material for every instance: what rides a moving part is cloned instead, so that it can
     // be drawn see-through on its own.
     const material = o.material.clone();
@@ -248,13 +298,14 @@ export function buildDeclaredMeshes() {
       if (standing.length > 0) {
         const key = instancedKey(modelIndex, standing);
         const built =
-          instanced.get(key) ?? makeInstancedModel(key, standing.length, gltf, scale, up);
+          instanced.get(key) ??
+          makeInstancedModel(key, standing.length, gltf, scale, up, declared.edits);
         instanced.delete(key);
         placeInstancedModel(built, modelIndex, standing);
       }
 
       riding.forEach((index) => {
-        const scene = orient(gltf, scale, up);
+        const scene = orient(gltf, scale, up, declared.edits);
 
         const root = new THREE.Group();
         root.add(scene);

@@ -13,6 +13,7 @@ import {
   placementOf,
   placeParts,
   stateOf,
+  liquidOf,
   vesselOf,
   ZERO,
 } from "./drawn.js";
@@ -275,10 +276,20 @@ function refreshOverlays(index, touched) {
     const fraction = Math.max(0, Math.min(1, volume / (vessel.model.max_volume || 1)));
     // Empty is white; any liquid at all steps clear of white so a nearly empty well still reads.
     const t = fraction > 0 ? 0.35 + 0.65 * fraction : 0;
-    vessel.mesh.setColorAt(
-      vessel.slot,
-      new THREE.Color(VESSEL_EMPTY).lerp(new THREE.Color(LIQUID), t),
-    );
+    const tint = new THREE.Color(VESSEL_EMPTY).lerp(new THREE.Color(LIQUID), t);
+    const liquid = liquidOf.get(index);
+    // How high it stands, from the server (PLR's own height function where the container has one).
+    // Without one the liquid cannot be drawn to scale, and the cavity is tinted instead, as before.
+    const height = state?.liquid_height;
+    if (liquid && Number.isFinite(height)) {
+      const floor = vessel.model.material_z_thickness ?? 0;
+      liquid.at[2] = height;
+      liquid.at[5] = floor + height / 2;
+      liquid.mesh.setColorAt(liquid.slot, tint);
+      if (liquid.mesh.instanceColor) liquid.mesh.instanceColor.needsUpdate = true;
+    }
+    const cup = liquid && Number.isFinite(height) ? new THREE.Color(VESSEL_EMPTY) : tint;
+    vessel.mesh.setColorAt(vessel.slot, cup);
     if (vessel.mesh.instanceColor) vessel.mesh.instanceColor.needsUpdate = true;
   }
 

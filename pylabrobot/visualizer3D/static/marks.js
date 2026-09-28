@@ -32,6 +32,7 @@ import {
 } from "./constants.js";
 import { carried, disposeOwned, OVERLAY_ORDER, own, paintOrderOf } from "./drawn.js";
 import { hexOf, niceNumber } from "./format.js";
+import { OVERLAYS } from "./options.js";
 import { camera, controls, mmPerPixel, view, viewportEl } from "./renderer.js";
 import { modelOf, sizeOf, world } from "./world.js";
 
@@ -424,6 +425,7 @@ export function buildArms() {
       }),
     );
     line.position.set(offset, (reachFront + reachBack) / 2, -REFERENCE_DROP);
+    line.visible = OVERLAYS;
     own(buildArms, line.geometry, line.material);
     // Under the frame in paint order as well as in z, so it reads through the window and is tinted
     // by the carriage everywhere else. Ordering, not position, is what decides this: depth testing
@@ -750,10 +752,10 @@ export function buildOrigin() {
 //
 // What a halo says: its colour is the channel's place in CHANNEL_RAMP, its number is drawn in it,
 // and it is filled while the channel's mounting shaft holds a tip and hollow while it does not.
-// On from the start; the rail button turns them off and on.
+// On from the start unless the link says `?overlays=0`; the rail button turns them off and on.
 export let halos = null;
 
-export let showHalos = true;
+export let showHalos = OVERLAYS; // the toolbar button still turns them on without overlays
 
 const HALO_TEXTURE_PX = 96;
 

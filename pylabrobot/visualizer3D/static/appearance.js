@@ -42,7 +42,8 @@ import {
   gridMarks,
   surfaces,
 } from "./marks.js";
-import { camera, controls, mmPerPixel } from "./renderer.js";
+import { OVERLAYS } from "./options.js";
+import { camera, controls, mmPerPixel, projection, viewportEl } from "./renderer.js";
 import { modelOf, sizeOf, world } from "./world.js";
 
 // A model that is on screen puts its box away. Recorded on the entry rather than only switched
@@ -139,6 +140,10 @@ function setPipelineFlags(material, flags) {
   if (changed) material.needsUpdate = true;
 }
 
+// Where a travelling see-through part is drawn among the other see-through things: after them, in
+// the order its meshes were loaded, so no angle can reorder it.
+const STEADY_ORDER = 0.5;
+
 function setRenderMode(plan) {
   for (const entry of meshes) {
     // Lit, at every angle. The lights ride with the camera, so a surface is shaded by its own shape
@@ -202,7 +207,9 @@ function setRenderMode(plan) {
       // other angle depth is right - what stands in front of a well does cover it - and there they
       // test like everything else.
       setPipelineFlags(overlay.material, { depthTest: !plan, depthWrite: !plan });
-      overlay.renderOrder = plan ? layer + (overlay.userData.behind ? 0.5 : 1) : 0;
+      // The wall first, then the cavity, then the liquid standing in it.
+      const step = overlay.userData.behind ? 0.5 : overlay.userData.liquid ? 1.25 : 1;
+      overlay.renderOrder = plan ? layer + step : 0;
     }
   }
 
@@ -214,7 +221,7 @@ function setRenderMode(plan) {
   const fromFile = [];
   for (const root of meshRoots) root.traverse((o) => o.isMesh && fromFile.push(o));
   for (const built of modelMeshes) for (const mesh of built.meshes) fromFile.push(mesh);
-  for (const o of fromFile) {
+  fromFile.forEach((o, slot) => {
     if (o.userData.lit) o.material = o.userData.lit;
     const modelled = o.userData.asModelled;
     // An instanced mesh holds only what stands still; a clone is drawn for one resource.
@@ -224,17 +231,22 @@ function setRenderMode(plan) {
     o.material.visible = !(plan && modelled?.glazed && !rides);
     if (!modelled) return;
     // A part held over the deck is drawn see-through, as its box is, so that what it is above
-    // still reads through it. It does not write depth for the same reason; it still tests, so
-    // the machine's own structure above it covers it as it should.
+    // still reads through it. It still tests depth, so the machine's own structure above it covers
+    // it as it should.
     const lifted = plan && rides;
+    // A see-through part that travels writes depth too, and keeps one place in the drawing order.
+    // Left as the file has it - blended, no depth, sorted by distance each frame - its parts and
+    // their overlapping faces blended in whatever order the camera put them, so the X-arm looked
+    // more or less solid as the view turned.
+    const steady = rides && modelled.transparent;
     o.material.opacity = lifted ? Math.min(modelled.opacity, MOVING_OPACITY) : modelled.opacity;
     setPipelineFlags(o.material, {
       transparent: lifted ? true : modelled.transparent,
-      depthWrite: lifted ? true : modelled.depthWrite,
+      depthWrite: lifted || steady ? true : modelled.depthWrite,
       depthTest: true,
     });
-    o.renderOrder = lifted ? CARRIED_LAYER : 0;
-  }
+    o.renderOrder = (lifted ? CARRIED_LAYER : 0) + (steady ? STEADY_ORDER + slot * 1e-4 : 0);
+  });
 
   for (const mark of gridMarks) {
     mark.traverse((o) => {
@@ -348,9 +360,35 @@ function settleRenderMode() {
   setRenderMode(planView);
 }
 
+// Where the scene's resources stand, as a box: what the nearest of them is measured against. Made
+// again for each new world.
+const sceneBox = new THREE.Box3();
+const _at = new THREE.Vector3();
+let sceneBoxOf = null;
+
+/**
+ * Millimetres a pixel is worth at the nearest part of the scene, which is what decides whether
+ * something small is worth drawing. The orbit point's depth used to decide it, and after flying,
+ * with the orbit point metres behind the deck, the channels in front of the camera came out under
+ * two pixels and were not drawn.
+ */
+function detailMmPerPixel() {
+  const atTarget = mmPerPixel();
+  if (projection === "orthographic" || !world) return atTarget;
+  if (sceneBoxOf !== world) {
+    sceneBox.makeEmpty();
+    for (const m of world.matrices) sceneBox.expandByPoint(_at.setFromMatrixPosition(m));
+    sceneBoxOf = world;
+  }
+  const depth = Math.max(1, sceneBox.distanceToPoint(camera.position));
+  const height = viewportEl.clientHeight || 1;
+  const atNearest = (2 * depth * Math.tan(((camera.fov ?? 45) * Math.PI) / 360)) / height;
+  return Math.min(atTarget, atNearest);
+}
+
 export function updateDetail() {
   settleRenderMode();
-  const perPixel = mmPerPixel();
+  const perPixel = detailMmPerPixel();
   if (!Number.isFinite(perPixel) || perPixel <= 0) return;
   // Only rework when the scale has moved enough to change an answer.
   if (detailScale !== null && Math.abs(perPixel / detailScale - 1) < 0.02) return;
@@ -400,7 +438,10 @@ export function updateDetail() {
     }
     entry.detailVisible = visible;
     for (const overlay of entry.overlays ?? []) {
-      const wanted = visible && (!overlay.userData.planOnly || planView === true);
+      const wanted =
+        visible &&
+        (!overlay.userData.planOnly || planView === true) &&
+        !(overlay.userData.boxOnly && entry.modelDrawn && !entry.standsIn);
       if (overlay.visible !== wanted) overlay.visible = wanted;
     }
     if (visible) drawn.add(entry.modelIndex);
@@ -437,13 +478,24 @@ function showThroughMarks(group) {
   });
 }
 
+const PLAN_ENTER_Z = 0.999;
+
+const PLAN_LEAVE_Z = 0.995;
+
+const _direction = new THREE.Vector3();
+
 export function updateEdgeMode() {
-  const direction = camera.position.clone().sub(controls.target).normalize();
+  const direction = _direction.copy(camera.position).sub(controls.target).normalize();
   // Looking straight down, and nothing else. An elevation is axis-aligned too and used to get the
   // same treatment, which is wrong twice over: from the front, higher is not nearer, and a drawing
   // painted by height puts the deck's back row in front of its front row. Looking straight up is
   // not a plan either - what is highest is then furthest away.
-  const plan = direction.z > 0.999;
+  // Into a plan within 2.6 degrees of straight down, out of it only past 5.7: at one threshold an
+  // orbit passing over the top crossed it back and forth, and each crossing re-keys every
+  // material, which is a hitch - 118 ms the first time, while a new pipeline compiled.
+  // Without overlays there is no plan view: its painting is for reading the deck's marks, and the
+  // models alone draw the same from straight above as from anywhere else.
+  const plan = OVERLAYS && direction.z > (planView ? PLAN_LEAVE_Z : PLAN_ENTER_Z);
   // No frame is asked for: this runs inside one, and the camera only reaches an axis through an
   // input, which has asked for frames already and is still damping to a stop.
   if (plan === planView) return;

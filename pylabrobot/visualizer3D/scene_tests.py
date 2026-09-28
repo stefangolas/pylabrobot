@@ -9,6 +9,8 @@ from pylabrobot.resources.hamilton import hamilton_96_tiprack_1000uL
 from pylabrobot.resources.resource import Resource
 from pylabrobot.visualizer3D.facility import Facility
 from pylabrobot.visualizer3D.scene import (
+  liquid_height,
+  published_state,
   Scene,
   _model_of,
   build_scene,
@@ -186,3 +188,40 @@ class PackStateTests(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+class LiquidHeightTests(unittest.TestCase):
+  """How high a container's liquid stands, as the page is told it."""
+
+  def setUp(self):
+    self.well = cor_96_wellplate_360uL_Fb(name="plate").get_item("A1")
+
+  def test_the_height_is_plrs_own_where_the_container_has_a_function(self):
+    self.assertAlmostEqual(liquid_height(self.well, 300.0), self.well.compute_height_from_volume(300.0))
+
+  def test_empty_is_zero_and_more_than_fits_stops_at_the_rim(self):
+    self.assertEqual(liquid_height(self.well, 0.0), 0.0)
+    depth = self.well.get_size_z() - self.well.material_z_thickness
+    self.assertAlmostEqual(liquid_height(self.well, 10_000.0), depth)
+
+  def test_a_flat_prism_without_a_function_is_volume_over_area(self):
+    from pylabrobot.resources.container import Container
+
+    box = Container(name="box", size_x=10, size_y=20, size_z=30, max_volume=6000)
+    box.bottom_type = "flat"
+    box.cross_section_type = "rectangle"
+    self.assertAlmostEqual(liquid_height(box, 1000.0), 5.0)
+
+  def test_a_round_bottom_without_a_function_is_left_unknown(self):
+    from pylabrobot.resources.container import Container
+
+    box = Container(name="box", size_x=10, size_y=10, size_z=30, max_volume=2000)
+    box.bottom_type = "U"
+    self.assertIsNone(liquid_height(box, 100.0))
+    self.assertNotIn("liquid_height", published_state(box, {"volume": 100.0}))
+
+  def test_a_published_state_carries_the_height(self):
+    self.well.tracker.set_volume(300.0)
+    state = published_state(self.well, self.well.serialize_state())
+    self.assertAlmostEqual(state["liquid_height"], liquid_height(self.well, 300.0))
+

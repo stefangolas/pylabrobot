@@ -765,6 +765,34 @@ class WaitForBrowserTests(unittest.IsolatedAsyncioTestCase):
       await Viewer3D(empty_facility(), open_browser=False).wait_for_browser(timeout=0.1)
 
 
+class LinkOptionTests(unittest.TestCase):
+  """What the viewer is asked to leave out travels in the link it prints, ahead of the token."""
+
+  def test_overlays_and_hover_left_out_are_in_the_link(self):
+    viewer = Viewer3D(empty_facility(), open_browser=False, fs_port=1, overlays=False, hover=False)
+    self.assertEqual(viewer.url, f"http://127.0.0.1:1/?overlays=0&hover=0#token={viewer.token}")
+
+  def test_bare_leaves_everything_out_in_one_word(self):
+    viewer = Viewer3D(empty_facility(), open_browser=False, fs_port=1, bare=True)
+    self.assertEqual(viewer.url, f"http://127.0.0.1:1/?bare=1#token={viewer.token}")
+
+  def test_a_start_camera_travels_in_the_link(self):
+    camera = ((532.1, -442.8, 1489.1), (645.7, 3686.2, -434.9))
+    viewer = Viewer3D(empty_facility(), open_browser=False, fs_port=1, bare=True, camera=camera)
+    self.assertEqual(
+      viewer.url,
+      f"http://127.0.0.1:1/?bare=1&camera=532.1,-442.8,1489.1,645.7,3686.2,-434.9#token={viewer.token}",
+    )
+
+  def test_a_dimmer_light_travels_in_the_link(self):
+    viewer = Viewer3D(empty_facility(), open_browser=False, fs_port=1, light=0.8)
+    self.assertEqual(viewer.url, f"http://127.0.0.1:1/?light=0.8#token={viewer.token}")
+
+  def test_a_viewer_that_leaves_nothing_out_links_to_the_plain_page(self):
+    viewer = Viewer3D(empty_facility(), open_browser=False, fs_port=1)
+    self.assertEqual(viewer.url, f"http://127.0.0.1:1/#token={viewer.token}")
+
+
 class AccessTests(unittest.IsolatedAsyncioTestCase):
   """Only the page this viewer served, reached by a name this machine answers to, may watch."""
 

@@ -3,7 +3,15 @@ import { forgetDetail, updateDetail, updateEdgeMode } from "./appearance.js";
 import { buildMeshes } from "./boxes.js";
 import { PROTOCOL } from "./constants.js";
 import { initDeviceTools } from "./device_tools.js";
-import { hiddenNames, meshes, meshRoots, modelMeshes, stateOf, worldBox } from "./drawn.js";
+import {
+  hiddenNames,
+  liquidOf,
+  meshes,
+  meshRoots,
+  modelMeshes,
+  stateOf,
+  worldBox,
+} from "./drawn.js";
 import { niceNumber } from "./format.js";
 import {
   afterDraw,
@@ -17,6 +25,7 @@ import {
   statsNow,
   whileMoving,
 } from "./frame.js";
+import { stepFly } from "./fly.js";
 import { initGif } from "./gif.js";
 import {
   applyMoves,
@@ -45,6 +54,7 @@ import {
 } from "./marks.js";
 import { buildDeclaredMeshes, dracoLoader, gltfLoader } from "./models.js";
 import { dropMotions, playMotion, stepMotion } from "./motion.js";
+import { OVERLAYS, START_CAMERA, UI } from "./options.js";
 import {
   clearSelection,
   hoverBox,
@@ -151,6 +161,13 @@ function sceneBounds() {
 const frame = (direction) => frameBox(sceneBounds(), direction ?? VIEWS.iso);
 
 function goToStartView() {
+  if (START_CAMERA) {
+    setProjection("perspective");
+    camera.position.set(...START_CAMERA.from);
+    controls.target.set(...START_CAMERA.at);
+    controls.update();
+    return;
+  }
   setProjection(startViewName === "iso" ? "perspective" : "orthographic");
   frame(startView);
 }
@@ -228,6 +245,22 @@ function atBoundary(surface) {
     zoom: camera.zoom,
   }),
   timings: () => timings,
+  // How the liquid in a well is drawn: its height, width and where its middle stands in the well,
+  // in mm, and whether it is on screen at all. Null for a resource with no liquid to draw.
+  liquid: (name) => {
+    const index = world?.indexOfName.get(name);
+    const drawn = index === undefined ? undefined : liquidOf.get(index);
+    if (!drawn) return null;
+    const m = new THREE.Matrix4();
+    drawn.mesh.getMatrixAt(drawn.slot, m);
+    return {
+      height: +drawn.at[2].toFixed(3),
+      width: +drawn.at[0].toFixed(3),
+      middle: +drawn.at[5].toFixed(3),
+      placed: m.elements.some((v) => v !== 0),
+      meshVisible: drawn.mesh.visible,
+    };
+  },
   // The models that arrived as files, and what is being done with each. A box that is not drawn
   // and a model that is not either leaves nothing on screen, and from outside the page the two
   // are indistinguishable - so the model has to be able to say so itself.
@@ -448,11 +481,14 @@ function rebuildScene(data) {
   forgetDetail();
   buildMeshes();
   resetFloor(sceneBounds().min.z);
-  buildGridMarks();
+  // Arms are built either way: they are what a move drives, and their frame stands in for a part
+  // with no model. With overlays off, only their reference line is left out (in buildArms).
+  if (OVERLAYS) buildGridMarks();
   buildArms();
-  buildReferenceMarks();
+  if (OVERLAYS) buildReferenceMarks();
   buildDeclaredMeshes();
-  buildOrigin();
+  if (OVERLAYS) buildOrigin();
+  // Both off until asked for without overlays; asked for, the toolbar builds them.
   buildOriginDots();
   buildHalos();
   timings.meshesMs = performance.now() - _tBuild;
@@ -521,6 +557,9 @@ whileMoving(updateGlides);
 
 whileMoving(stepMotion);
 
+// Before the controls, so a frame flown is also a frame damped.
+whileMoving(stepFly);
+
 whileMoving(() => controls.update());
 
 whileMoving(() => gif.isRecording());
@@ -532,19 +571,19 @@ whileMoving(() => gif.isRecording());
 // until the camera next moved, and a view turned to a plan kept the colours of the angle it came
 // from. Nothing here asks for another frame; they are worked out for this one.
 for (const prepare of [
-  updateFloor,
+  OVERLAYS && updateFloor,
   updateDetail,
   updateEdgeMode,
   updateOrigin,
   updateHalos,
   updateBullseyes,
-  updateScaleBar,
+  OVERLAYS && updateScaleBar,
 ]) {
-  beforeDraw(prepare);
+  if (prepare) beforeDraw(prepare);
 }
 
 afterDraw(() => {
-  if (!viewHelper) return;
+  if (!viewHelper || !OVERLAYS) return;
   // The helper renders a second pass into a corner of the same canvas. Without turning auto-clear
   // off it clears the colour buffer for that corner first, leaving a blank patch over the scene.
   renderer.autoClear = false;
@@ -600,6 +639,11 @@ initTransport({
 });
 
 buildViewHelper();
+
+// What is not a resource and sits over the viewport as page rather than scene: the stylesheet
+// hides it under this class.
+if (!OVERLAYS) document.body.classList.add("no-overlays");
+if (!UI) document.body.classList.add("no-ui");
 
 refreshToolUI();
 

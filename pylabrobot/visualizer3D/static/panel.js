@@ -7,6 +7,7 @@ import { HOVER, SELECT, SELECTION_SHOWN_MS } from "./constants.js";
 import { OVERLAY_ORDER, stateOf, worldBox } from "./drawn.js";
 import { escapeHtml, fmt, liquid, NBSP, section, tuple, withUnit } from "./format.js";
 import { invalidate } from "./frame.js";
+import { HOVER_HIGHLIGHT } from "./options.js";
 import { view } from "./renderer.js";
 import { modelOf, sizeOf, world } from "./world.js";
 
@@ -249,6 +250,7 @@ export function select(index, openPanel = true) {
 }
 
 export function showHoverBox(index) {
+  if (!HOVER_HIGHLIGHT) return;
   hoverBox.box.copy(worldBox(index));
   hoverBox.visible = true;
 }

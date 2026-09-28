@@ -1397,3 +1397,29 @@ main {
   font-size: 9px;
   color: #666;
 }
+
+/* `?overlays=0`: what reads the scene rather than drawing it. The zoom and home buttons stay. */
+body.no-overlays #scale-bar,
+body.no-overlays #stats-panel {
+  display: none;
+}
+
+/* `?ui=0`: the canvas alone, filling the window. */
+body.no-ui nav.navbar,
+body.no-ui #toolbar-left,
+body.no-ui #toolbar,
+body.no-ui #sidepanel,
+body.no-ui #zoom-controls,
+body.no-ui #home-button,
+body.no-ui #hover-readout,
+body.no-ui #scale-bar,
+body.no-ui #stats-panel,
+body.no-ui .tool-panel,
+body.no-ui .dt-panel,
+body.no-ui .uml-panel {
+  display: none !important;
+}
+
+body.no-ui .content {
+  height: 100%;
+}

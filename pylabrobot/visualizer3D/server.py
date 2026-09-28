@@ -39,6 +39,7 @@ from .scene import (
   collect_state,
   legacy_size,
   pack_state,
+  published_state,
   state_signature,
 )
 
@@ -180,6 +181,25 @@ class Viewer3D:
       the package is found without it.
     allowed_hosts: extra hostnames a browser may reach the viewer by. IP addresses, `localhost`,
       this machine's hostname and `<hostname>.local` are always accepted.
+    overlays: whether the page draws what is not a resource: the floor grid, origin, rail numbers,
+      reference marks, channel halos, axis gizmo, scale bar, statistics, and device panels opened
+      on arrival. False puts `overlays=0` in `url`.
+    hover: whether pointing at a resource outlines it and shows its readout. False puts `hover=0`
+      in `url`.
+    ui: whether the page shows its interface around the canvas: navbar, tool rails, tree, buttons,
+      panels. False puts `ui=0` in `url`, and the canvas fills the window.
+    bare: `overlays`, `hover` and `ui` all False at once: the models alone. Puts `bare=1` in `url`.
+    light: every light and the reflections scaled by this; 1 is the page's own lighting. Puts
+      `light=...` in `url` when not 1.
+    mesh_edits: changes to a resource's model file, by resource name. Each rule names a material.
+      With `"color"` (any CSS colour) that material is drawn in it. Otherwise its faces are left
+      out: all of them, or with `"axis"` ("x", "y" or "z") and `"below"` only the faces square to
+      that axis whose middle lies below it, in the file's own units and axes - for a cover or a
+      panel between the camera and what is behind it. A model shared by several resources is
+      edited for all of them.
+    camera: where the view opens and Home returns to, as ((from x, y, z), (at x, y, z)) in the
+      root's millimetres: the camera's position and the point it looks at and orbits. None frames
+      the whole scene. Puts `camera=...` in `url`.
 
   Access: each run makes a token, hands it out only in the link it prints and opens (`url`, as
   its `#token=` fragment, which no request carries), and refuses a websocket without it. Both
@@ -196,6 +216,13 @@ class Viewer3D:
   token: str
   allowed_hosts: Set[str]
   models_root: Optional[str]
+  overlays: bool
+  hover: bool
+  ui: bool
+  bare: bool
+  camera: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]
+  mesh_edits: Dict[str, List[Dict[str, Any]]]
+  light: float
   rebuilds: int
   clients_seen: List[Dict[str, Optional[str]]]
   _clients: Set[ServerConnection]
@@ -335,7 +362,14 @@ class Viewer3D:
     # A wildcard bind is no address to browse to, and an IPv6 literal needs its brackets.
     host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(self.host, self.host)
     host = f"[{host}]" if ":" in host else host
-    return f"http://{host}:{self.fs_port}/#token={self.token}"
+    options = (("overlays", self.overlays), ("hover", self.hover), ("ui", self.ui))
+    asked = ["bare=1"] if self.bare else [f"{key}=0" for key, on in options if not on]
+    if self.camera is not None:
+      asked.append("camera=" + ",".join(f"{v:g}" for point in self.camera for v in point))
+    if self.light != 1.0:
+      asked.append(f"light={self.light:g}")
+    query = f"?{'&'.join(asked)}" if asked else ""
+    return f"http://{host}:{self.fs_port}/{query}#token={self.token}"
 
   @property
   def ws_url(self) -> str:
@@ -431,6 +465,12 @@ class Viewer3D:
     payload = scene.serialize()
     self._scene = scene
     self._register_meshes(payload["models"])
+    names = payload["instances"]["names"]
+    for name, rules in self.mesh_edits.items():
+      if name in names:
+        mesh = payload["models"][payload["instances"]["model"][names.index(name)]].get("mesh")
+        if isinstance(mesh, dict):
+          mesh["edits"] = rules
 
     # A new scene renumbers everything, so the indices change with the epoch that names them.
     self._epoch += 1
@@ -549,7 +589,7 @@ class Viewer3D:
       # Batched on the loop, so a 96-channel operation is one message, not ninety-six.
       loop = self._live_loop()
       if loop is not None:
-        loop.call_soon_threadsafe(self._enqueue, r.name, state)
+        loop.call_soon_threadsafe(self._enqueue, r.name, published_state(r, state))
 
     resource.register_state_update_callback(on_update)
     self._subscribed[id(resource)] = (resource, on_update)
@@ -844,8 +884,22 @@ class Viewer3D:
     name: str = "facility",
     models_root: Optional[str] = None,
     allowed_hosts: Iterable[str] = (),
+    overlays: bool = True,
+    hover: bool = True,
+    ui: bool = True,
+    bare: bool = False,
+    camera: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None,
+    mesh_edits: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    light: float = 1.0,
   ):
     self.root = root
+    self.overlays = overlays
+    self.hover = hover
+    self.ui = ui
+    self.bare = bare
+    self.camera = camera
+    self.mesh_edits = dict(mesh_edits or {})
+    self.light = light
     self.host = host
     self.fs_port = fs_port
     self.ws_port = ws_port

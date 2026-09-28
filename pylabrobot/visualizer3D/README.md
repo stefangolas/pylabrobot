@@ -155,8 +155,10 @@ without the variable renders on the CPU, and the URL opens in it, so start it th
 6. **Done.** GIF frames are read back from a render target on both backends. `preserveDrawingBuffer`
    was never read by this three and is gone.
 7. **Done**, by measurement rather than detection: `frame.js` steps the pixel ratio to 1 and then
-   drops the environment while frames stay slow, and back up once they are fast; `?quality=low`
-   pins the lowest level. Antialiasing is fixed when the renderer is made, so it is not a level.
+   drops the environment while frames stay slow, and stays where it settles (stepping back up made a
+   machine near the line stutter each time it swung); `?quality=low` pins the lowest level.
+   Antialiasing is fixed when the renderer is made, so it is not a level: it is on below 1.5 device
+   pixels per CSS pixel and off above, where it was most of a frame's cost; `?aa=1` or `?aa=0` decides.
 8. Send broadcasts to all clients at once and drop slow ones. Today one slow remote viewer stalls updates for every client.
 
 Rejected: a Canvas2D fallback renderer (a second renderer that would drift from the first) and a full

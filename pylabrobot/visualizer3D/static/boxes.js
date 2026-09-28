@@ -14,6 +14,7 @@ import {
   RESOURCE_COLORS,
   structureEdgeStyle,
   TIP_PLAN_FILL,
+  LIQUID_INSET,
   VESSEL_EMPTY,
   VESSEL_RIM,
   VESSEL_WALL,
@@ -30,6 +31,7 @@ import {
   isCarrier,
   isVessel,
   isVisible,
+  liquidOf,
   meshes,
   own,
   placeInstance,
@@ -38,6 +40,7 @@ import {
   remember,
   vesselOf,
 } from "./drawn.js";
+import { OVERLAYS } from "./options.js";
 import { view } from "./renderer.js";
 import { sizeOf, world } from "./world.js";
 
@@ -50,6 +53,27 @@ const CYL = new THREE.CylinderGeometry(0.5, 0.5, 1, 20).rotateX(Math.PI / 2);
 // Open at both ends. A shaft is a length of tube: the bottom is where a tip goes on and the top is
 // where the channel carries on, so capping either reads as a solid slug hanging off the head.
 const TUBE = new THREE.CylinderGeometry(0.5, 0.5, 1, 20, 1, true).rotateX(Math.PI / 2);
+
+// A shape with its top face taken out: the group three builds that face as, dropped from the index.
+function withoutGroup(geometry, dropped) {
+  const open = geometry.clone();
+  const keep = [];
+  const index = open.index.array;
+  open.groups.forEach((group, i) => {
+    if (i === dropped) return;
+    for (let k = group.start; k < group.start + group.count; k++) keep.push(index[k]);
+  });
+  open.setIndex(keep);
+  open.clearGroups();
+  return open;
+}
+
+// A well's wall, open at the top: a closed one put a lid over the cavity at the rim, so whatever
+// stands inside at any other height was seen through a grey disc. Box faces come as +x, -x, +y,
+// -y, +z, -z; a cylinder's as side, top, bottom, and the top is +z once it is turned onto Z.
+const BOX_OPEN = withoutGroup(BOX, 4);
+
+const CYL_OPEN = withoutGroup(CYL, 1);
 
 // Flat in XY, facing up: a filter lies across a tip standing on the deck.
 const DISC = new THREE.CircleGeometry(0.5, 32);
@@ -171,7 +195,8 @@ function makeDrawing(model, count, encloses, edgeDepth) {
 
   // Stroked, as the existing visualizer strokes every resource, up to a count past which a
   // thousand wells read as haze. A travelling part draws its own frame and gets no box outline.
-  if (!MOVING_PARTS.has(model.category) && count <= EDGE_LIMIT) {
+  // Without overlays nothing is stroked: an outline is an annotation, not the resource.
+  if (OVERLAYS && !MOVING_PARTS.has(model.category) && count <= EDGE_LIMIT) {
     const style = structureEdgeStyle(edgeDepth);
     const edgeMaterial = new THREE.Line2NodeMaterial({
       color: style.color,
@@ -208,7 +233,10 @@ function makeDrawing(model, count, encloses, edgeDepth) {
       color: colorFor(model),
       roughness: 0.7,
     });
-    makeOverlay(entry, PLANE, floorMaterial, [sx, sy, 1, sx / 2, sy / 2, 0.3]);
+    const floor = makeOverlay(entry, PLANE, floorMaterial, [sx, sy, 1, sx / 2, sy / 2, 0.3]);
+    // Only while the box is the picture: a carrier drawn from its file has a base of its own, and
+    // this coloured sheet then showed through it as a purple or blue patch under every site.
+    floor.userData.boxOnly = true;
   }
 
   if (vessel) {
@@ -223,7 +251,8 @@ function makeDrawing(model, count, encloses, edgeDepth) {
       opacity: VESSEL_WALL_OPACITY,
     });
     const wallAt = [sx + 2 * VESSEL_WALL, sy + 2 * VESSEL_WALL, sz, sx / 2, sy / 2, sz / 2];
-    const wall = makeOverlay(entry, geometryFor(model), wallMaterial, wallAt);
+    const shape = geometryFor(model);
+    const wall = makeOverlay(entry, shape === CYL ? CYL_OPEN : BOX_OPEN, wallMaterial, wallAt);
     wall.userData.behind = true; // painted before the cavity it surrounds
 
     // The cavity IS the box. A container's size is what it holds, and the material around it
@@ -236,21 +265,45 @@ function makeDrawing(model, count, encloses, edgeDepth) {
     // wall around it. Three draws every transparent object after every opaque one whatever the
     // render order says, so an opaque cavity inside a see-through wall is painted first and
     // then covered by the wall's own top face - which is what hid the well from above.
+    //
+    // A well's cavity is drawn from the inside, as a cup: its floor and its far walls, white, and no
+    // lid - so what stands in it is seen at its own height rather than under a disc at the rim. A
+    // tip spot keeps its solid inside, which is only drawn while the spot is empty.
+    const spot = model.category === "tip_spot";
     const innerMaterial = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       roughness: 0.55,
       transparent: true,
       opacity: 1,
+      side: spot ? THREE.FrontSide : THREE.BackSide,
     });
     const innerAt = [sx, sy, sz * 1.02, sx / 2, sy / 2, (sz * 1.02) / 2];
     // A spot holding a tip shows the tip, and the white of an empty hole would lie across its
     // bore - over the filter, which sits just below the spot.
-    const spot = model.category === "tip_spot";
     const inner = makeOverlay(entry, geometryFor(model), innerMaterial, innerAt, spot);
     const white = new THREE.Color(VESSEL_EMPTY);
     for (let slot = 0; slot < count; slot++) inner.setColorAt(slot, white);
     inner.instanceColor.needsUpdate = true;
     entry.vessel = inner;
+
+    // The liquid: the cavity's own shape from its floor up to the surface, one instance a well,
+    // each placed at its own height as the server reports it. A hair narrower than the cavity, so
+    // its side is not the same surface as the wall it stands against.
+    if (!spot) {
+      const liquidMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        // Wet, but not a mirror: shinier than this, a light riding with the camera put a white
+        // glare across whole columns in a top view.
+        roughness: 0.55,
+        transparent: true, // in the cavity's pass, as the cavity is in the wall's
+        opacity: 1,
+      });
+      const liquid = makeOverlay(entry, geometryFor(model), liquidMaterial, null);
+      liquid.userData.liquid = true;
+      for (let slot = 0; slot < count; slot++) liquid.setColorAt(slot, white);
+      liquid.instanceColor.needsUpdate = true;
+      entry.liquid = liquid;
+    }
   }
 
   // A filter in every tip of one model: a white disc across the bore, `FILTER_BELOW_COLLAR` below
@@ -350,9 +403,17 @@ function placeDrawing(entry, touched) {
     placeInstance(mesh, slot, world.matrices[index], sx, sy, sz);
     placementOf[index] = { mesh, slot };
     for (const overlay of entry.overlays) {
+      if (overlay.userData.liquid) continue;
       remember(index, overlay, slot, overlay.userData.at, overlay.userData.emptyOnly);
     }
     if (entry.vessel) vesselOf.set(index, { mesh: entry.vessel, slot, model });
+    if (entry.liquid) {
+      // Empty until the state says otherwise: a height of zero is parked, not drawn.
+      const inset = 1 - LIQUID_INSET;
+      const at = [sx * inset, sy * inset, 0, sx / 2, sy / 2, 0];
+      remember(index, entry.liquid, slot, at);
+      liquidOf.set(index, { mesh: entry.liquid, slot, model, at });
+    }
     placeParts(index, touched);
     if (entry.edges) {
       edgeOf.set(index, entry);

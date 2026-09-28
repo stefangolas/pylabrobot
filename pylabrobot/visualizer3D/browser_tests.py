@@ -306,6 +306,31 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
     """Where the viewer draws a resource, read off the scene it holds."""
     return float(await browser.evaluate(f"window.plrViewer.worldOf({name!r})[0]"))
 
+  async def test_a_link_without_overlays_or_hover_draws_the_resources_alone(self):
+    """`?overlays=0&hover=0`: no marks, nothing outlined under the pointer, the scene still drawn."""
+    self.viewer.overlays = self.viewer.hover = False
+    async with Browser() as browser:
+      await self.page(browser)
+      self.assertEqual((await browser.evaluate("window.plrViewer.grid()"))["groups"], 0)
+      self.assertFalse(await browser.evaluate("!!document.querySelector('#scale-bar').offsetParent"))
+      # Pointed at from inside the page, the rider would be outlined; here it is not.
+      await self.point_at(browser, "rider")
+      await browser.frames(3)
+      self.assertFalse((await browser.evaluate("window.plrViewer.hover()"))["visible"])
+      self.assertGreater(await browser.drawn_fraction("#viewport"), 0.0)
+
+  async def point_at(self, browser: Browser, name: str) -> None:
+    """Move the pointer onto the middle of a resource, as a mouse would."""
+    at = await browser.evaluate(
+      f"(() => {{ const r = document.querySelector('#viewport canvas').getBoundingClientRect();"
+      f" for (let y = r.top + 5; y < r.bottom; y += 6) for (let x = r.left + 5; x < r.right; x += 6)"
+      f" if (window.plrViewer.pickAt(x, y) === {name!r}) return [x, y]; return null; }})()"
+    )
+    self.assertIsNotNone(at, f"{name} is on screen")
+    await browser._call(
+      "Input.dispatchMouseEvent", {"type": "mouseMoved", "x": at[0], "y": at[1], "buttons": 0}
+    )
+
   async def test_a_scene_from_another_protocol_is_named_not_drawn(self):
     """The page is fetched fresh on every load while the Python serving it is as old as its
     process, and a page reading a scene from an older server misread it in silence: positions
@@ -623,6 +648,25 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
       )
       # Smaller, not reframed: the GIF keeps the viewport's aspect.
       self.assertAlmostEqual(width / height, buffer_width / buffer_height, delta=0.02)
+
+  async def test_a_wells_liquid_stands_at_plrs_height_and_an_empty_one_draws_none(self):
+    """The liquid is drawn from the cavity floor to the height PLR gives for the volume."""
+    track_volumes(self)
+    plate = cor_96_wellplate_360uL_Fb(name="plate")
+    self.facility.assign_child_resource(plate, location=Coordinate(600, 400, 0))
+    full, empty = plate.get_item("A1"), plate.get_item("A2")
+    async with Browser() as browser:
+      await self.page(browser, full.name)
+      full.tracker.set_volume(300.0)
+      drawn = await browser.settle(
+        f"(() => {{ const l = window.plrViewer.liquid({full.name!r}); return l && l.height > 0 && l; }})()",
+        10,
+      )
+      # Published state is rounded to a tenth of a millimetre, which is what the page can know.
+      height = full.compute_height_from_volume(300.0)
+      self.assertAlmostEqual(drawn["height"], height, delta=0.05)
+      self.assertAlmostEqual(drawn["middle"], full.material_z_thickness + height / 2, delta=0.05)
+      self.assertEqual((await browser.evaluate(f"window.plrViewer.liquid({empty.name!r})"))["height"], 0)
 
   async def test_a_well_shows_the_volume_it_holds_not_the_one_an_operation_would_leave(self):
     """The page drew the pending volume, so a well filled at the start of an aspirate that then

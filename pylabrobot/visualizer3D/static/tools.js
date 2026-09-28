@@ -40,6 +40,7 @@ import {
   viewportEl,
 } from "./renderer.js";
 import { markTreeRow } from "./tree.js";
+import { HOVER_HIGHLIGHT, OVERLAYS } from "./options.js";
 import { modelOf, treeDepth, world } from "./world.js";
 
 let activeTool = "cursor";
@@ -481,7 +482,7 @@ export function answerHover() {
 }
 
 renderer.domElement.addEventListener("pointermove", (event) => {
-  if (!world) return;
+  if (!world || !HOVER_HIGHLIGHT) return;
   if (event.buttons !== 0) {
     // Dragging: whatever the pointer passes over on the way is not being pointed at.
     readout.style.display = "none";
@@ -507,7 +508,8 @@ let panelOpenedAt = 0;
 
 renderer.domElement.addEventListener("click", (event) => {
   // The helper owns its corner of the canvas; only if it declines does the click reach the scene.
-  if (viewHelper) {
+  // Not drawn without overlays, so it does not take clicks either.
+  if (viewHelper && OVERLAYS) {
     viewHelper.center.copy(controls.target);
     if (viewHelper.handleClick(event)) return;
   }
