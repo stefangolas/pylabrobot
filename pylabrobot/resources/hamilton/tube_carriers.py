@@ -72,6 +72,39 @@ def hamilton_tube_carrier_32_a00_insert_eppendorf_1_5mL(name: str) -> TubeCarrie
   )
 
 
+def hamilton_tube_carrier_32_a00(name: str) -> TubeCarrier:
+  """Hamilton cat. no.: 173410, without inserts.
+  Hamilton name: 'SMP_CAR_32_A00'.
+  'Sample' carrier for 32 tubes of 11-14 mm outside diameter, 60-120 mm high.
+  1 track(T) wide.
+
+  The bare carrier; `hamilton_tube_carrier_32_a00_insert_eppendorf_1_5mL` is the same carrier
+  with inserts (187350), which have smaller holes on a different axis.
+
+  Positions from Hamilton's SMP_CAR_32_A00.rck (BndryX 13.6, BndryY 14.5, Dy 15). Bore diameter
+  and floor from Hamilton's SMP_CAR_32_A00.hxx mesh: a tube stands on the bore floor, 9.85 mm
+  up. The mesh is 60 mm tall; the rack's 140 mm `Dim.Dz` is its clearance, not its body.
+  """
+  bore_diameter = 13.5
+  return TubeCarrier(
+    name=name,
+    size_x=22.5,  # 1 track, rck Dim.Dx
+    size_y=497.0,  # rck Dim.Dy
+    size_z=60.0,  # hxx mesh
+    sites=create_homogeneous_resources(
+      klass=ResourceHolder,
+      locations=[
+        Coordinate(13.6 - bore_diameter / 2, 14.5 - bore_diameter / 2 + i * 15, 9.85)
+        for i in range(32)
+      ],
+      resource_size_x=bore_diameter,
+      resource_size_y=bore_diameter,
+      name_prefix=name,
+    ),
+    model="SMP_CAR_32_A00",
+  )
+
+
 def hamilton_tube_carrier_12_b00(name: str) -> TubeCarrier:
   """Hamilton cat. no.: 182045
   Hamilton name: 'SMP_CAR_12_B00'.
