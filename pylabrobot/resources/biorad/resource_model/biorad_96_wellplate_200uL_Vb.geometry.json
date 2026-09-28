@@ -1,0 +1,57 @@
+{
+ "model": "biorad_96_wellplate_200uL_Vb",
+ "source": "C:\\Users\\stefa\\NGS-Protocols\\assets\\NGSStar\\KitProvider\\KitName\\Labware\\BioRad PCR Full Skirt White.x",
+ "source_sha256": "793d5dfa937623fe7b1191bfefe7a96fb0eebbe2e3c3978fd9317b47a012dfa5",
+ "units": "m",
+ "up": "Z",
+ "frame": "PLR plate frame: origin at the front-left corner of the base plane, A1 at the back left",
+ "transform_mm": {
+  "axes": "source (x, y-up, z) -> (x, z, y), winding reversed",
+  "translation": [
+   64.229,
+   42.644,
+   0.0
+  ]
+ },
+ "a1_source_mm": [
+  14.031,
+  74.336
+ ],
+ "a1_plr_mm": [
+  14.38,
+  74.24
+ ],
+ "bounds_mm": [
+  [
+   0.349,
+   -0.096,
+   -0.055
+  ],
+  [
+   128.109,
+   85.384,
+   16.367
+  ]
+ ],
+ "materials": [
+  {
+   "material": "white_polycarbonate_shell",
+   "source_rgb": [
+    0.779,
+    0.779,
+    0.779
+   ],
+   "triangles": 2660
+  },
+  {
+   "material": "clear_polypropylene",
+   "source_rgb": [
+    0.64,
+    0.64,
+    0.64
+   ],
+   "triangles": 42624
+  }
+ ],
+ "notes": "Geometry as authored by Hamilton; normals from the source MeshNormals. Materials are visual estimates."
+}

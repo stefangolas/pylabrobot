@@ -1,0 +1,48 @@
+{
+ "model": "thermo_TS_abgene_96_wellplate_800uL_Vb",
+ "source": "C:\\Users\\stefa\\NGS-Protocols\\assets\\NGSStar\\KitProvider\\KitName\\Labware\\0.8 mL Abgene MIDI Plate.x",
+ "source_sha256": "c5d956ed562ed937738be33efed7e4f5c22c397e37e81340076edf599876c389",
+ "units": "m",
+ "up": "Z",
+ "frame": "PLR plate frame: origin at the front-left corner of the base plane, A1 at the back left",
+ "transform_mm": {
+  "axes": "source (x, y-up, z) -> (x, z, y), winding reversed",
+  "translation": [
+   63.88,
+   42.74,
+   0.0
+  ]
+ },
+ "a1_source_mm": [
+  14.38,
+  74.24
+ ],
+ "a1_plr_mm": [
+  14.38,
+  74.24
+ ],
+ "bounds_mm": [
+  [
+   0.0,
+   -0.0,
+   0.13
+  ],
+  [
+   127.76,
+   85.48,
+   29.985
+  ]
+ ],
+ "materials": [
+  {
+   "material": "natural_polypropylene",
+   "source_rgb": [
+    0.718,
+    0.718,
+    0.718
+   ],
+   "triangles": 126078
+  }
+ ],
+ "notes": "Geometry as authored by Hamilton; normals from the source MeshNormals. Materials are visual estimates."
+}
