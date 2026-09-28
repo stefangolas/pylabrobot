@@ -25,6 +25,7 @@ from pylabrobot.resources.eppendorf import Eppendorf_DNA_LoBind_2ml_Ub
 from pylabrobot.resources.hamilton.mfx_modules import (
   hamilton_cpac_tube_block_2mL,
   hamilton_mfx_cpac_bracket,
+  hamilton_mfx_plateholder_DWP_HP_tabbed_old,
 )
 from pylabrobot.resources.hamilton.mfx_carriers import (
   MFX_CAR_L4_SHAKER,
@@ -127,7 +128,6 @@ class HeaterShakerOnShakerCarrierTests(unittest.TestCase):
     self.assertAlmostEqual(at.y + hhs.get_size_y() / 2, 298.05)
     self.assertAlmostEqual(at.z, 8.0 + HHS_RISER_HEIGHT)
 
-
   def test_mfx_car_l4_shaker_is_this_carrier(self):
     for index in range(4):
       with self.subTest(index=index):
@@ -203,6 +203,58 @@ class CPACOnShakerCarrierTests(unittest.TestCase):
       inheco_cpac_ultraflat("cpac", control_box=InhecoTECControlBox(), index=1, adapter="x")
 
 
+class OldHPTabbedCPACCarrierTests(unittest.TestCase):
+  """`MFX_CAR_2HHSF30DWP_DWP HPTab OLD_CPAC`, the NGS STAR MOA carrier of the KAPA HyperPlus, 10x
+  and PacBio decks (its template is not in any kit), composed from its parts: 3 mm flat DWP Heater
+  Shakers at Hamilton's positions 1 and 2, the OLD DWP HP Tabbed nest at 3, the CPAC at 4.
+
+  Against the Multiflex catalogue's sites for the shaker carrier (X 15.25, Y 375.05 - 120 (p - 1)
+  plus the nest's own offset, Z the module's base), with the carrier at track 41 (deck X 1000, Y 63,
+  Z 100) as the decks place it. The decks agree on the Heater Shaker sites and on 10x's MIDI in
+  the OLD nest (bottom at 184). Their CPAC plate is hand-placed and differs: KAPA and 10x have a
+  Hard-Shell 4.65 in front of the template and 3.5 above the Bio-Rad-on-PCR-adapter seat (196.3,
+  not 192.8); PacBio leaves it on the catalogue's 102.6, the top of Hamilton's CPAC model."""
+
+  def carrier(self):
+    deck = Resource("deck", size_x=2000, size_y=700, size_z=100)
+    cpac = inheco_cpac_ultraflat(
+      "cpac", control_box=InhecoTECControlBox(), index=1, adapter="pcr_low_profile"
+    )
+    carrier = hamilton_mfx_carrier_7T_shaker(
+      "car",
+      modules={
+        3: unit("hhs4", hamilton_hhs_nest_flat_dwp_3mm),
+        2: unit("hhs5", hamilton_hhs_nest_flat_dwp_3mm),
+        1: hamilton_mfx_plateholder_DWP_HP_tabbed_old("old_nest"),
+        0: hamilton_mfx_cpac_bracket("bracket", cpac),
+      },
+    )
+    deck.assign_child_resource(carrier, location=Coordinate(1000, 63, 100))
+    return carrier, cpac
+
+  def test_the_plate_sites(self):
+    carrier, _ = self.carrier()
+    expected = {3: (1015.25, 436.5, 183.0), 2: (1015.25, 316.5, 183.0), 1: (1015.25, 198.05, 184.0)}
+    for index, (x, y, z) in expected.items():
+      with self.subTest(index=index):
+        holder = carrier.sites[index] if index == 1 else nest_at(carrier, index)
+        plate = thermo_TS_abgene_96_wellplate_800uL_Vb(f"midi{index}")
+        holder.assign_child_resource(plate)
+        at = plate.get_absolute_location()
+        self.assertAlmostEqual(at.x, x, places=6)
+        self.assertAlmostEqual(at.y, y, places=6)
+        self.assertAlmostEqual(at.z, z, places=6)
+
+  def test_the_cpac_plate(self):
+    _, cpac = self.carrier()
+    plate = biorad_96_wellplate_200uL_Vb("cold")
+    cpac.assign_child_resource(plate)
+    a1 = plate.get_well("A1").get_absolute_location("c", "c", "b")
+    self.assertAlmostEqual(a1.x, 1029.25, places=6)
+    self.assertAlmostEqual(a1.y, 63 + 15.05 + 74.5, places=6)
+    self.assertAlmostEqual(plate.get_absolute_location().z, 192.8, places=6)
+
+
 class ModelTests(unittest.TestCase):
   """Each model file drawn in its resource's frame (bounds in mm)."""
 
@@ -221,6 +273,8 @@ class ModelTests(unittest.TestCase):
     "hamilton_mfx_cpac_bracket": ([0, 0, 0], [134.0, 100.0, 10.0]),
     # 134.5 x 103.7 around the SBS footprint's centre; its top plate reaches 41.07
     "hamilton_cpac_tube_block_2mL": ([-3.37, -9.206, -0.034], [131.13, 94.49, 41.074]),
+    # the bracket's footprint; the nest's tabs 8.04 above its plate site (76)
+    "hamilton_mfx_plateholder_DWP_HP_tabbed_old": ([0, 0, 0], [134.0, 100.0, 84.04]),
   }
 
   def test_every_model_is_in_its_resource_frame(self):

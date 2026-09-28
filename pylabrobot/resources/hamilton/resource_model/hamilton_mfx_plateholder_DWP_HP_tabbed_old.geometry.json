@@ -1,0 +1,36 @@
+{
+ "model": "hamilton_mfx_plateholder_DWP_HP_tabbed_old",
+ "units": "m",
+ "up": "Z",
+ "sources": {
+  "BracketShakerBase.x": "60779dca6e3dfea2e147f929dcd168358f34a9124df06b4364d57512ef9be097",
+  "9855301MFXHPDWPTAB.x": "4608ab8af38e0f19f6930aa0e35476991e5e96d822d6ab9b753987e739df7c75"
+ },
+ "source_dir": "C:\\Users\\stefa\\plr-viz3d-scratch\\hamilton_library\\tools\\mfx_extracted",
+ "transform_mm": {
+  "axes": "source (x, y-up, z) -> (x, z, y), winding reversed",
+  "translation": [
+   0.0,
+   0.0,
+   0.0
+  ]
+ },
+ "bounds_mm": [
+  [
+   0.0,
+   0.0,
+   0.0
+  ],
+  [
+   134.0,
+   100.0,
+   84.04
+  ]
+ ],
+ "triangles_by_finish": {
+  "satin_aluminum": 24,
+  "machined_aluminum": 7328,
+  "black_anodized_carrier": 8672
+ },
+ "notes": "Geometry as authored by Hamilton, split by source mesh; normals from the source. Finishes are visual estimates."
+}

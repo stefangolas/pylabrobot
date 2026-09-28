@@ -60,8 +60,6 @@ def hamilton_mfx_resourceholder_ntr(name: str) -> ResourceHolder:
   )
 
 
-
-
 # -- HP Tabbed plate nests ----------------------------------------------------------------------
 # Hamilton's height-adjusted nests with corner tabs, which bring an MTP, a MIDI plate and a DWP to
 # about the same top height. From Hamilton's Multiflex catalogue (MultiMFX.INI, "HP Tabbed"): the
@@ -100,6 +98,27 @@ def hamilton_mfx_plateholder_MIDI_HP_tabbed(name: str) -> PlateHolder:
   return _hp_tabbed(name, hamilton_mfx_plateholder_MIDI_HP_tabbed.__name__, site_z=94.8)
 
 
+def hamilton_mfx_plateholder_DWP_HP_tabbed_old(name: str) -> PlateHolder:
+  """Hamilton cat. no.: 98553-01, the older DWP HP Tabbed nest, on its bracket (188133) for the MFX
+  shaker carrier (`hamilton_mfx_carrier_7T_shaker`).
+
+  From Hamilton's Multiflex catalogue ("DWP HPTab OLD"): plate site 127 x 86 at 84 above the
+  carrier's bottom. The 134 x 100 x 10 bracket (BracketShakerBase.x) stands on the carrier's 8 mm
+  plate like the CPAC's, with the nest on it and the site centred, so the site is 66 above the
+  nest's foot.
+  """
+  seat = 84.0 - 8.0  # the site above the carrier's bottom, less the carrier's plate
+  return PlateHolder(
+    name=name,
+    size_x=134.0,
+    size_y=100.0,
+    size_z=seat,
+    child_location=Coordinate((134.0 - 127.0) / 2, (100.0 - 86.0) / 2, seat),
+    model=hamilton_mfx_plateholder_DWP_HP_tabbed_old.__name__,
+    pedestal_size_z=0,
+  )
+
+
 def hamilton_mfx_cpac_bracket(name: str, cpac: Optional[ResourceHolder] = None) -> ResourceHolder:
   """Hamilton's bracket for an Inheco CPAC Ultraflat on the MFX shaker carrier (the Multiflex
   catalogue's "CPAC Flat" module: "modified base", brackets 188362), with `cpac` on it if given
@@ -121,7 +140,6 @@ def hamilton_mfx_cpac_bracket(name: str, cpac: Optional[ResourceHolder] = None) 
   if cpac is not None:
     bracket.assign_child_resource(cpac)
   return bracket
-
 
 
 def hamilton_cpac_tube_block_2mL(name: str) -> TubeRack:
@@ -179,6 +197,7 @@ def hamilton_mfx_odtc_lid_park(name: str) -> ResourceHolder:
     category="lid_park",
     model=hamilton_mfx_odtc_lid_park.__name__,
   )
+
 
 # -- Plate storage ---------------------------------------------------------------------------
 
