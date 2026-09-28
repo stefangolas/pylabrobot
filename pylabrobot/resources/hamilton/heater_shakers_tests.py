@@ -3,6 +3,9 @@ from pathlib import Path
 
 from pylabrobot.resources.coordinate import Coordinate
 from pylabrobot.resources.corning import cor_96_wellplate_360uL_Fb
+from pylabrobot.inheco import inheco_cpac_ultraflat
+from pylabrobot.inheco.control_box import InhecoTECControlBox
+from pylabrobot.resources.biorad import biorad_96_wellplate_200uL_Vb
 from pylabrobot.resources.biorad.plates_tests import glb_bounds_mm
 from pylabrobot.resources.hamilton.heater_shakers import (
   HHS_RISER_HEIGHT,
@@ -18,11 +21,13 @@ from pylabrobot.resources.hamilton.heater_shakers import (
   hamilton_hhs_nest_pcr96_abi,
   hamilton_hhs_nest_sarstedt_1_5mm,
 )
+from pylabrobot.resources.hamilton.mfx_modules import hamilton_mfx_cpac_bracket
 from pylabrobot.resources.hamilton.mfx_carriers import (
   MFX_CAR_L4_SHAKER,
   hamilton_mfx_carrier_7T_shaker,
 )
 from pylabrobot.resources.resource import Resource
+from pylabrobot.resources.thermo_fisher import thermo_TS_abgene_96_wellplate_800uL_Vb
 
 MODEL_DIR = Path(__file__).parent / "resource_model"
 FLAT_MTP = (hamilton_hhs_nest_flat_mtp_2mm, hamilton_hhs_nest_flat_mtp_3mm)
@@ -128,6 +133,52 @@ class HeaterShakerOnShakerCarrierTests(unittest.TestCase):
         self.assertEqual(a.model, b.model)
 
 
+class CPACOnShakerCarrierTests(unittest.TestCase):
+  """A CPAC Ultraflat on Hamilton's bracket, at position 4 of the shaker carrier (index 0), against
+  Venus's `KitName_v2.0.lay` / `Avenio CGP.lay`: MFX_CAR_2HHSF30MTP_HHSF30DWP_CPAC at deck
+  (1157.5, 63, 100), its 4_CPAC site carrying a Bio-Rad Hard-Shell (bottom at 192.8) and an Abgene
+  MIDI (191.5), their A1 at X 1186.75 and, on the template, Y 152.55 (the layouts' hand placement
+  is 4.05 in front of it)."""
+
+  def plate_on_cpac(self, adapter, plate):
+    deck = Resource("deck", size_x=2000, size_y=700, size_z=100)
+    cpac = inheco_cpac_ultraflat("cpac", control_box=InhecoTECControlBox(), index=1, adapter=adapter)
+    carrier = hamilton_mfx_carrier_7T_shaker(
+      "car", modules={0: hamilton_mfx_cpac_bracket("bracket", cpac)}
+    )
+    deck.assign_child_resource(carrier, location=Coordinate(1157.5, 63, 100))
+    cpac.assign_child_resource(plate)
+    return plate
+
+  def check(self, plate, bottom_z):
+    a1 = plate.get_well("A1").get_absolute_location("c", "c", "b")
+    self.assertAlmostEqual(a1.x, 1186.75, places=6)
+    self.assertAlmostEqual(a1.y, 152.55, places=6)
+    self.assertAlmostEqual(plate.get_absolute_location().z, bottom_z, places=6)
+
+  def test_a_hard_shell_on_the_pcr_adapter(self):
+    self.check(self.plate_on_cpac("pcr_low_profile", biorad_96_wellplate_200uL_Vb("hsp")), 192.8)
+
+  def test_a_midi_on_its_adapter(self):
+    self.check(
+      self.plate_on_cpac("abgene_midi", thermo_TS_abgene_96_wellplate_800uL_Vb("midi")), 191.5
+    )
+
+  def test_the_cpac_is_centred_in_its_slot_on_the_bracket(self):
+    cpac = inheco_cpac_ultraflat("cpac", control_box=InhecoTECControlBox(), index=1)
+    carrier = hamilton_mfx_carrier_7T_shaker(
+      "car", modules={0: hamilton_mfx_cpac_bracket("bracket", cpac)}
+    )
+    at = cpac.get_location_wrt(carrier)
+    self.assertAlmostEqual(at.x + cpac.get_size_x() / 2, 78.75)
+    self.assertAlmostEqual(at.y + cpac.get_size_y() / 2, 58.05)
+    self.assertAlmostEqual(at.z, 18.0)
+
+  def test_an_unknown_adapter_is_refused(self):
+    with self.assertRaises(ValueError):
+      inheco_cpac_ultraflat("cpac", control_box=InhecoTECControlBox(), index=1, adapter="x")
+
+
 class ModelTests(unittest.TestCase):
   """Each model file drawn in its resource's frame (bounds in mm)."""
 
@@ -143,6 +194,7 @@ class ModelTests(unittest.TestCase):
     "hamilton_hhs_nest_pcr96_abi": ([2.31, 5.36, 0], [144.36, 99.36, 13.0]),
     # 1.5 mm right of the template origin (Hamilton's 3DxOffset); the rear tab reaches 526.5
     "MFX_CAR_7T_shaker": ([1.5, 0, 0], [156.0, 526.5, 21.5]),
+    "hamilton_mfx_cpac_bracket": ([0, 0, 0], [134.0, 100.0, 10.0]),
   }
 
   def test_every_model_is_in_its_resource_frame(self):

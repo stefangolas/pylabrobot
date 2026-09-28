@@ -16,9 +16,11 @@ def inheco_cpac_ultraflat(
   return TemperatureController(
     name=name,
     backend=InhecoCPACBackend(control_box=control_box, index=index),
-    size_x=113,  # from spec
-    size_y=89,  # from spec
-    size_z=129,  # from spec
-    child_location=Coordinate(x=8, y=11, z=77),  # x from spec, y and z measured
+    # Inheco's drawing: 129 long, 89 wide (thermal adapter), 80 to the adapter's top. A plate
+    # stands centred, its bottom 77 up (measured, flat adapter). See `pylabrobot.inheco.cpac`.
+    size_x=129,
+    size_y=89,
+    size_z=80,
+    child_location=Coordinate(x=(129 - 127.76) / 2, y=(89 - 85.48) / 2, z=77),
     model=inheco_cpac_ultraflat.__name__,
   )

@@ -1,0 +1,33 @@
+{
+ "model": "hamilton_mfx_cpac_bracket",
+ "units": "m",
+ "up": "Z",
+ "sources": {
+  "BracketShakerBaseCPAC.x": "6f5fba3c4dc38b81338e383be30d2270e84a90a5402356c093ecbf2f321bf505"
+ },
+ "source_dir": "C:\\Users\\stefa\\plr-viz3d-scratch\\hamilton_library\\tools\\mfx_extracted",
+ "transform_mm": {
+  "axes": "source (x, y-up, z) -> (x, z, y), winding reversed",
+  "translation": [
+   67.0,
+   50.0,
+   10.0
+  ]
+ },
+ "bounds_mm": [
+  [
+   0.0,
+   0.0,
+   0.0
+  ],
+  [
+   134.0,
+   100.0,
+   10.0
+  ]
+ ],
+ "triangles_by_finish": {
+  "satin_aluminum": 44
+ },
+ "notes": "Geometry as authored by Hamilton, split by source mesh; normals from the source. Finishes are visual estimates."
+}

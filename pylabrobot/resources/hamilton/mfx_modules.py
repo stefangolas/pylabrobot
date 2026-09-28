@@ -1,4 +1,5 @@
 import warnings
+from typing import Optional
 
 from pylabrobot.resources.carrier import Coordinate, PlateHolder
 from pylabrobot.resources.resource_holder import ResourceHolder
@@ -55,6 +56,30 @@ def hamilton_mfx_resourceholder_ntr(name: str) -> ResourceHolder:
     child_location=Coordinate(x=(135.0 - 127.76) / 2, y=(94.0 - 85.48) / 2, z=10.8),
     model=hamilton_mfx_resourceholder_ntr.__name__,
   )
+
+
+
+def hamilton_mfx_cpac_bracket(name: str, cpac: Optional[ResourceHolder] = None) -> ResourceHolder:
+  """Hamilton's bracket for an Inheco CPAC Ultraflat on the MFX shaker carrier (the Multiflex
+  catalogue's "CPAC Flat" module: "modified base", brackets 188362), with `cpac` on it if given
+  (`pylabrobot.inheco.inheco_cpac_ultraflat`).
+
+  134 x 100 x 10, from Hamilton's model (BracketShakerBaseCPAC.x); the CPAC stands centred on it,
+  as Hamilton's assembled carriers draw it.
+  """
+  bracket = ResourceHolder(
+    name=name,
+    size_x=134.0,
+    size_y=100.0,
+    size_z=10.0,
+    # centres the CPAC Ultraflat's 129 x 89 footprint
+    child_location=Coordinate(x=(134.0 - 129.0) / 2, y=(100.0 - 89.0) / 2, z=10.0),
+    category="cpac_bracket",
+    model=hamilton_mfx_cpac_bracket.__name__,
+  )
+  if cpac is not None:
+    bracket.assign_child_resource(cpac)
+  return bracket
 
 
 # -- Plate storage ---------------------------------------------------------------------------
