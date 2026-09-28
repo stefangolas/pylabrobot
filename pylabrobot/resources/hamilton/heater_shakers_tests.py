@@ -142,7 +142,9 @@ class CPACOnShakerCarrierTests(unittest.TestCase):
 
   def plate_on_cpac(self, adapter, plate):
     deck = Resource("deck", size_x=2000, size_y=700, size_z=100)
-    cpac = inheco_cpac_ultraflat("cpac", control_box=InhecoTECControlBox(), index=1, adapter=adapter)
+    cpac = inheco_cpac_ultraflat(
+      "cpac", control_box=InhecoTECControlBox(), index=1, adapter=adapter
+    )
     carrier = hamilton_mfx_carrier_7T_shaker(
       "car", modules={0: hamilton_mfx_cpac_bracket("bracket", cpac)}
     )
