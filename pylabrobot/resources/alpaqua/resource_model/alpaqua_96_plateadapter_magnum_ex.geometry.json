@@ -1,0 +1,37 @@
+{
+ "model": "alpaqua_96_plateadapter_magnum_ex",
+ "units": "m",
+ "up": "Z",
+ "sources": {
+  "Alpaqua Magnum Ex Magnetic Stand.x": "c587a314f397f62027ad3b9c78f44f74ccd12d5a535a4c65dd89213d9ea51d7f"
+ },
+ "source_dir": "Hamilton NGS STAR (KAPA HyperPlus / PacBio / 10x kits), Labware\\Alpaqua Magnet",
+ "transform_mm": {
+  "axes": "source (x, y-up, z) -> (x, z, y), winding reversed",
+  "translation": [
+   64.9824,
+   44.0794,
+   -0.0
+  ]
+ },
+ "bounds_mm": [
+  [
+   -1.554,
+   -1.879,
+   0.0
+  ],
+  [
+   129.324,
+   87.241,
+   35.882
+  ]
+ ],
+ "triangles_by_finish": {
+  "alpaqua_blue_anodized": 12,
+  "satin_aluminum": 196,
+  "nickel_plated": 24192,
+  "dark_anodized": 1520
+ },
+ "notes": "Geometry as authored by Hamilton, split by source mesh; normals from the source. Finishes are visual estimates. Zero-length source normals replaced by face normals; degenerate triangles dropped.",
+ "reference": "Alpaqua drawing A000380-WS Rev. A: base 127.76 x 85.60, height 35.14, ring tops 28.79 (35.14 - 6.35), rings 12 x 8 at 9.00 over 108.00. The model matches the base and rings to 0.01; its top frame is simplified (35.88 high, 130.9 x 89.1 against the drawing's corner brackets at 134.37 x 92.20)."
+}

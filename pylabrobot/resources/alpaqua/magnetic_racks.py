@@ -27,6 +27,32 @@ def alpaqua_96_plateadapter_magnum_flx(name: str) -> PlateAdapter:
   )
 
 
+def alpaqua_96_plateadapter_magnum_ex(name: str) -> PlateAdapter:
+  """Alpaqua Engineering LLC cat. no.: A000380
+  Magnum EX universal magnet plate: 96 ring magnets on an elevated platform.
+
+  From Alpaqua's drawing A000380-WS Rev. A: base 127.76 x 85.60, 35.14 high, 12 x 8 ring magnets
+  9.00 across at a 9.00 pitch, centred on the base, their tops at 28.79 (35.14 - 6.35).
+
+  The plate seat, 29.21 above the base, is Hamilton's: their Magnum EX template
+  (`Alpaqua_MagEx.tml`) seats plates there, and every Hamilton NGS STAR kit that uses this magnet
+  pipettes an Abgene MIDI plate on it. A plate that sits in the rings rather than on them (a PCR
+  plate) would need its own `plate_z_offset`.
+  """
+  return PlateAdapter(
+    name=name,
+    size_x=127.76,
+    size_y=85.60,
+    size_z=35.14,
+    dx=(127.76 - 108.0) / 2,  # the H1 ring's left edge
+    dy=(85.60 - 72.0) / 2,  # the H1 ring's front edge
+    dz=29.21,
+    adapter_hole_size_x=9.0,
+    adapter_hole_size_y=9.0,
+    model=alpaqua_96_plateadapter_magnum_ex.__name__,
+  )
+
+
 # Deprecated names for backwards compatibility
 # TODO: Remove >2026-02
 
