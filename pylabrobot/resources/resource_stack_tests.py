@@ -214,3 +214,44 @@ class ResourceStackTipRackNestingTests(unittest.TestCase):
     plate = Plate("plate", size_x=10, size_y=10, size_z=10, ordered_items={}, stacking_z_height=4)
     stack = self._stack(plate, self._rack("rack", 16))
     self.assertEqual(stack.get_top_item().get_absolute_location(), Coordinate(0, 0, 10))
+
+
+class ResourceStackLidNestingTests(unittest.TestCase):
+  """Lids with a `stacking_z_height` nest into one another in a z-stack, as plates do."""
+
+  def _lid(self, name, stacking_z_height=None):
+    return Lid(
+      name,
+      size_x=10,
+      size_y=10,
+      size_z=8.5,
+      nesting_z_height=4,
+      stacking_z_height=stacking_z_height,
+    )
+
+  def _stack(self, *lids):
+    stack = ResourceStack("s", "z")
+    stack.location = Coordinate.zero()
+    for lid in lids:
+      stack.assign_child_resource(lid)
+    return stack
+
+  def test_without_stacking_z_height_no_nesting(self):
+    stack = self._stack(self._lid("l1"), self._lid("l2"))
+    self.assertEqual(stack.get_size_z(), 17)
+    self.assertEqual(stack.get_top_item().get_absolute_location(), Coordinate(0, 0, 8.5))
+
+  def test_five_lids_nest(self):
+    stack = self._stack(*(self._lid(f"l{i}", 6.7) for i in range(5)))
+    # height = size_z + (N-1) * stacking_z_height = 8.5 + 4 * 6.7
+    self.assertAlmostEqual(stack.get_size_z(), 35.3)
+    self.assertAlmostEqual(stack.get_top_item().get_absolute_location().z, 26.8)
+
+  def test_a_lid_does_not_nest_into_a_plate(self):
+    plate = Plate("plate", size_x=10, size_y=10, size_z=10, ordered_items={}, stacking_z_height=4)
+    stack = self._stack(plate, self._lid("lid", 6.7))
+    self.assertEqual(stack.get_top_item().get_absolute_location(), Coordinate(0, 0, 10))
+
+  def test_serialization_keeps_the_stacking_height(self):
+    self.assertEqual(self._lid("l", 6.7).serialize()["stacking_z_height"], 6.7)
+    self.assertNotIn("stacking_z_height", self._lid("l").serialize())

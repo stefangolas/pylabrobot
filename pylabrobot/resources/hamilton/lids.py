@@ -9,8 +9,8 @@ def hamilton_pcr_comfort_lid(name: str) -> Lid:
   From Hamilton's definitions Ham_1_NB_Lid_ODTC_V1.0 and V1.1 (NGS STAR labware; same outline):
   127.5 x 85.3 at its base, 8.5 tall. On a plate in the ODTC, Hamilton's carrier template
   (MFX_CAR_ODTC_MTP) puts the lid's bottom 12.0 above the plate's (sites 1_ODTC at 94.5, 2_ODTC_LID
-  at 106.5): on a 16.06 mm Hard-Shell 96 it overlaps the plate by 4.06. (The definitions' stacking
-  height, 6.7, is lid on lid.)
+  at 106.5): on a 16.06 mm Hard-Shell 96 it overlaps the plate by 4.06. Lid on lid, the
+  definitions' stacking height is 6.7, which the NGS STAR decks' lid stacks keep.
   """
   return Lid(
     name=name,
@@ -18,5 +18,6 @@ def hamilton_pcr_comfort_lid(name: str) -> Lid:
     size_y=85.3,
     size_z=8.5,
     nesting_z_height=16.06 - 12.0,
+    stacking_z_height=6.7,
     model=hamilton_pcr_comfort_lid.__name__,
   )

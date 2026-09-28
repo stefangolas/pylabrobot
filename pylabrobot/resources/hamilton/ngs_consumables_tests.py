@@ -3,6 +3,8 @@
 import unittest
 
 from pylabrobot.resources import (
+  Coordinate,
+  ResourceStack,
   Resource,
   biorad_96_wellplate_200uL_Vb,
   cor_axy_1_troughplate_300mL_Vb,
@@ -30,6 +32,13 @@ class ComfortLidTests(unittest.TestCase):
     lid = hamilton_pcr_comfort_lid("lid")
     plate.assign_child_resource(lid)
     self.assertAlmostEqual(lid.get_location_wrt(plate).z, 12.0)  # Hamilton's ODTC lid site
+
+  def test_a_stack_of_five_keeps_hamiltons_pitch(self):
+    """Ham_1_NB_Lid_ODTC's stacking height 6.7; the NGS STAR decks stack five at that pitch."""
+    stack = ResourceStack("stack", "z", [hamilton_pcr_comfort_lid(f"lid{i}") for i in range(5)])
+    stack.location = Coordinate.zero()
+    self.assertAlmostEqual(stack.get_top_item().get_location_wrt(stack).z, 4 * 6.7)
+    self.assertAlmostEqual(stack.get_size_z(), 8.5 + 4 * 6.7)
 
 
 class TubeAdapterTests(unittest.TestCase):
