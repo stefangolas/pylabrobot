@@ -237,6 +237,37 @@ class TestHead96Tips(unittest.IsolatedAsyncioTestCase):
       await self.head.pick_up_tips(self.tip_rack)
     self.assertEqual(self.sent, [])
 
+  async def test_an_offset_of_whole_columns_picks_up_what_is_under_the_head(self):
+    """Head channel A1 over spot A5: channels in columns 1-8 take the tips of columns 5-12; the
+    rest of the head hangs past the rack, and columns 1-4 keep their tips."""
+    spots = self.tip_rack.get_all_items()
+    shafts = self.head_resource.get_all_items()
+    before = [spot.tip for spot in spots]
+    await self.head.pick_up_tips(self.tip_rack, offset=Coordinate(4 * 9.0, 0, 0))
+    self.assertIn("C0EPxs01539", self.sent[-1])  # 117.9 + 36.0
+    for shaft in range(96):
+      column, row = divmod(shaft, 8)
+      with self.subTest(shaft=shaft):
+        want = before[(column + 4) * 8 + row] if column < 8 else None
+        self.assertIs(shafts[shaft].tip, want)
+    self.assertTrue(all(spots[i].has_tip() for i in range(32)))
+    self.assertFalse(any(spots[i].has_tip() for i in range(32, 96)))
+
+    # dropped back at the same offset, each tip returns to its spot
+    await self.head.drop_tips(self.tip_rack, offset=Coordinate(4 * 9.0, 0, 0))
+    self.assertEqual([spot.tip for spot in spots], before)
+
+  async def test_a_nudge_keeps_each_channel_on_its_own_spot(self):
+    before = [spot.tip for spot in self.tip_rack.get_all_items()]
+    await self.head.pick_up_tips(self.tip_rack, offset=Coordinate(0.5, -0.5, 0))
+    self.assertEqual([shaft.tip for shaft in self.head_resource.get_all_items()], before)
+
+  async def test_an_offset_between_spots_is_refused_before_anything_is_sent(self):
+    with self.assertRaises(ValueError):
+      await self.head.pick_up_tips(self.tip_rack, offset=Coordinate(4.5, 0, 0))
+    self.assertEqual(self.sent, [])
+    self.assertTrue(all(spot.has_tip() for spot in self.tip_rack.get_all_items()))
+
   async def test_a_failed_command_leaves_the_tips_where_they_were(self):
     answer = self.driver._answer
     spots = self.tip_rack.get_all_items()

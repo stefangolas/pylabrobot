@@ -467,11 +467,15 @@ class Head96(Head):
     """Pick up a rack of tips on the whole head, as legacy's `pick_up_tips96`. `C0 EP`.
 
     Head channel A1 goes to the centre of spot A1, at the spot's Z. Once the device has picked them
-    up, the tip in each spot is mounted on the shaft of the channel with the spot's index.
+    up, the tip in each spot is mounted on the shaft of the channel standing over it: the channel
+    with the spot's index, or, with the head offset by whole channel pitches, the one that many
+    columns and rows away. Spots no channel stands over keep their tips.
 
     Args:
       tip_rack: a 96 tip rack. Spots without a tip give none.
-      offset: added to spot A1's centre, in mm.
+      offset: added to spot A1's centre, in mm. Whole multiples of the channel pitch shift which
+        channel stands over which spot (a head offset by one pitch right picks up with channel A1
+        from spot A2); within a millimetre of one, they only nudge.
       tip_pickup_method: `from_rack` sends the dispensing drive down first, since the device does
         not; `from_waste` and `full_blowout` move the plunger up before mounting.
       minimum_height_command_end: in mm. `configuration.traversal_z_position` when None.
@@ -489,11 +493,12 @@ class Head96(Head):
       raise RuntimeError("tip commands are placed from the deck; this driver was given none")
     if tip_rack.num_items != 96:
       raise ValueError("Tip rack must have 96 tips")
-    tips = [
-      spot.tip_for_pickup() if not spot.tracks_tips or spot.tip is not None else None
-      for spot in tip_rack.get_all_items()
-    ]
-    prototypical_tip = next((tip for tip in tips if tip is not None), None)
+    spots = tip_rack.get_all_items()
+    under = self._spots_under_shafts(offset)
+    prototypical_tip = next(
+      (spot.tip_for_pickup() for spot in spots if not spot.tracks_tips or spot.tip is not None),
+      None,
+    )
     if prototypical_tip is None:
       raise ValueError("No tips found in the tip rack.")
     if not isinstance(prototypical_tip, HamiltonTip):
@@ -507,6 +512,14 @@ class Head96(Head):
       minimum_traverse_height_start, minimum_height_command_end
     )
     self._check_tip_command(location, traverse_z, end_z, skip_z=True)
+    tips = [
+      None
+      if j is None or (spots[j].tracks_tips and spots[j].tip is None)
+      else spots[j].tip_for_pickup()
+      for j in under
+    ]
+    if all(tip is None for tip in tips):
+      raise ValueError("No tips under the head at this offset.")
 
     if tip_pickup_method == "from_rack":
       await self.move_dispensing_drive_to_position(
@@ -531,6 +544,27 @@ class Head96(Head):
         if tip is not None:
           shaft.mount_tip(tip)
     await self._record_after_tip_command()
+
+  def _spots_under_shafts(self, offset: Optional[Coordinate]) -> List[Optional[int]]:
+    """For each shaft, in spot order (A1, B1, ..., H12), the index of the rack spot it stands over
+    when head channel A1 is sent to spot A1 plus `offset`, or None where it is past the rack.
+
+    Raises:
+      ValueError: If the offset leaves the channels between spots rather than over them.
+    """
+    pitch = self.configuration.channel_pitch
+    offset = offset or Coordinate.zero()
+    columns, rows = round(offset.x / pitch), round(-offset.y / pitch)
+    for residual in (offset.x - columns * pitch, -offset.y - rows * pitch):
+      if abs(residual) > 1.0:
+        raise ValueError(
+          f"an offset of ({offset.x}, {offset.y}) puts the channels between the rack's spots"
+        )
+    under: List[Optional[int]] = []
+    for shaft in range(96):
+      column, row = shaft // 8 + columns, shaft % 8 + rows
+      under.append(column * 8 + row if 0 <= column < 12 and 0 <= row < 8 else None)
+    return under
 
   # -- drop --------------------------------------------------------------------------------------
 
@@ -561,10 +595,12 @@ class Head96(Head):
     deck = self._driver.deck
     if deck is None:
       raise RuntimeError("tip commands are placed from the deck; this driver was given none")
+    under: Optional[List[Optional[int]]] = None
     if isinstance(resource, TipRack):
       if resource.num_items != 96:
         raise ValueError("Tip rack must have 96 tips")
       location = resource.get_item("A1").get_location_wrt(deck, x="c", y="c", z="b")
+      under = self._spots_under_shafts(offset)
     else:
       location = self._position_centred_in(resource)
     location += offset or Coordinate.zero()
@@ -590,8 +626,8 @@ class Head96(Head):
         if not shaft.has_tip():
           continue
         tip = shaft.release_tip()
-        if isinstance(resource, TipRack) and isinstance(tip, Tip):
-          spot = resource.get_item(i)
+        if under is not None and under[i] is not None and isinstance(tip, Tip):
+          spot = cast(TipRack, resource).get_item(under[i])
           if spot.tracks_tips:
             spot.assign_tip(tip)
     await self._record_after_tip_command()
