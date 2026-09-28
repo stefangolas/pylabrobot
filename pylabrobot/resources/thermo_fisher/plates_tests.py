@@ -28,9 +28,9 @@ class AbgeneMidiTests(unittest.TestCase):
 
   def test_volume_and_height_are_inverse(self) -> None:
     well = self.plate.get_well("A1")
-    self.assertAlmostEqual(well.max_volume, 1032, delta=1)
+    self.assertAlmostEqual(well.max_volume, 910.5, delta=0.5)
     self.assertGreater(well.max_volume, 800)
-    for volume in [0.5, 20, 63.9, 64.5, 300, 800, 1030]:
+    for volume in [0.5, 20, 67.9, 68.1, 300, 800, 910]:
       with self.subTest(volume=volume):
         height = well.compute_height_from_volume(volume)
         self.assertAlmostEqual(well.compute_volume_from_height(height), volume, places=6)
@@ -45,7 +45,7 @@ class AbgeneMidiTests(unittest.TestCase):
 
   def test_model_fits_the_plate(self) -> None:
     lo, hi = glb_bounds_mm(MODEL_DIR / f"{self.plate.model}.glb")
-    for got, want in zip(lo + hi, [0, 0, 0, 127.76, 85.48, 29.99]):
+    for got, want in zip(lo + hi, [0, 0, 0, 127.76, 85.48, 30.0]):
       self.assertAlmostEqual(got, want, delta=0.15)
 
 

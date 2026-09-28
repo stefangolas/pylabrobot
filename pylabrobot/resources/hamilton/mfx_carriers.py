@@ -6,6 +6,11 @@ from pylabrobot.resources.carrier import (
   MFXCarrier,
   ResourceHolder,
 )
+from pylabrobot.resources.hamilton.mfx_modules import (
+  hamilton_mfx_plateholder_DWP_HP_tabbed,
+  hamilton_mfx_plateholder_MIDI_HP_tabbed,
+  hamilton_mfx_plateholder_MTP_HP_tabbed,
+)
 
 
 def hamilton_mfx_carrier_L5_base(name: str, modules: Dict[int, ResourceHolder]) -> MFXCarrier:
@@ -44,6 +49,23 @@ def hamilton_mfx_carrier_L5_base(name: str, modules: Dict[int, ResourceHolder]) 
     model="MFX_CAR_L5_base",
   )
 
+
+
+def hamilton_mfx_carrier_L5_2MTP_MIDI_2DWP_HP_tabbed(name: str) -> MFXCarrier:
+  """Hamilton's NGS STAR carrier 'MFX_CAR_2MTP HPTab_MIDI HPTab_2DWP HPTab': an L5 base with HP
+  Tabbed nests, from the front: two DWP (6601988-01), a MIDI (6600518-01), two MTP (6601987-01).
+  As assembled in the NGS STAR protocol labware (KAPA HyperPlus, 10x Genomics, PacBio, QIAseq).
+  """
+  return hamilton_mfx_carrier_L5_base(
+    name,
+    modules={
+      0: hamilton_mfx_plateholder_DWP_HP_tabbed(f"{name}_dwp_0"),
+      1: hamilton_mfx_plateholder_DWP_HP_tabbed(f"{name}_dwp_1"),
+      2: hamilton_mfx_plateholder_MIDI_HP_tabbed(f"{name}_midi"),
+      3: hamilton_mfx_plateholder_MTP_HP_tabbed(f"{name}_mtp_0"),
+      4: hamilton_mfx_plateholder_MTP_HP_tabbed(f"{name}_mtp_1"),
+    },
+  )
 
 def MFX_CAR_L4_SHAKER(name: str, modules: Dict[int, ResourceHolder]) -> MFXCarrier:
   """Hamilton cat. no.: 187001

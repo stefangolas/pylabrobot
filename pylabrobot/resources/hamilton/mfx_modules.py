@@ -4,6 +4,8 @@ from typing import Optional
 from pylabrobot.resources.carrier import Coordinate, PlateHolder
 from pylabrobot.resources.resource_holder import ResourceHolder
 from pylabrobot.resources.tip_rack_holder import EmbeddedTipRackHolder
+from pylabrobot.resources.tube_rack import TubeRack
+from pylabrobot.resources.utils import create_ordered_items_2d
 
 
 def hamilton_mfx_tiprackholder_standard(name: str) -> EmbeddedTipRackHolder:
@@ -59,6 +61,45 @@ def hamilton_mfx_resourceholder_ntr(name: str) -> ResourceHolder:
 
 
 
+
+# -- HP Tabbed plate nests ----------------------------------------------------------------------
+# Hamilton's height-adjusted nests with corner tabs, which bring an MTP, a MIDI plate and a DWP to
+# about the same top height. From Hamilton's Multiflex catalogue (MultiMFX.INI, "HP Tabbed"): the
+# plate site is 127 x 86 at X 4 and Y 8.5 + 96 i on the L5 base, at the catalogue's height above
+# the carrier's bottom; Hamilton's NGS STAR carrier `MFX_CAR_2MTP HPTab_MIDI HPTab_2DWP HPTab`
+# has exactly these sites. On PLR's L5 base the module stands at (0, 4.5 + 96 i, 18.2).
+_L5_MODULE_Z = 18.2
+
+
+def _hp_tabbed(name: str, model: str, site_z: float) -> PlateHolder:
+  seat = site_z - _L5_MODULE_Z
+  return PlateHolder(
+    name=name,
+    size_x=135.0,
+    size_y=94.0,
+    size_z=seat,
+    child_location=Coordinate(4.0, 4.0, seat),
+    model=model,
+    pedestal_size_z=0,
+  )
+
+
+def hamilton_mfx_plateholder_MTP_HP_tabbed(name: str) -> PlateHolder:
+  """Hamilton cat. no.: 6601987-01, MTP HP Tabbed. Plate site 109.7 above the carrier's bottom."""
+  return _hp_tabbed(name, hamilton_mfx_plateholder_MTP_HP_tabbed.__name__, site_z=109.7)
+
+
+def hamilton_mfx_plateholder_DWP_HP_tabbed(name: str) -> PlateHolder:
+  """Hamilton cat. no.: 6601988-01, DWP HP Tabbed. Plate site 82.4 above the carrier's bottom."""
+  return _hp_tabbed(name, hamilton_mfx_plateholder_DWP_HP_tabbed.__name__, site_z=82.4)
+
+
+def hamilton_mfx_plateholder_MIDI_HP_tabbed(name: str) -> PlateHolder:
+  """Hamilton cat. no.: 6600518-01, MIDI HP Tabbed, for the Abgene 0.8 mL MIDI plate. Plate site
+  94.8 above the carrier's bottom."""
+  return _hp_tabbed(name, hamilton_mfx_plateholder_MIDI_HP_tabbed.__name__, site_z=94.8)
+
+
 def hamilton_mfx_cpac_bracket(name: str, cpac: Optional[ResourceHolder] = None) -> ResourceHolder:
   """Hamilton's bracket for an Inheco CPAC Ultraflat on the MFX shaker carrier (the Multiflex
   catalogue's "CPAC Flat" module: "modified base", brackets 188362), with `cpac` on it if given
@@ -81,6 +122,44 @@ def hamilton_mfx_cpac_bracket(name: str, cpac: Optional[ResourceHolder] = None) 
     bracket.assign_child_resource(cpac)
   return bracket
 
+
+
+def hamilton_cpac_tube_block_2mL(name: str) -> TubeRack:
+  """Hamilton's 24-position 2 mL tube block for the Inheco CPAC (the Multiflex catalogue's
+  "CPAC 2mL" module). Stands on the CPAC as its thermal adapter:
+  `inheco_cpac_ultraflat(..., adapter="tubes_2mL")`.
+
+  From Hamilton's rack definition (CPAC_2mLTubes.rck, for eppendorf_2ml.ctr): 4 x 6 positions at
+  18 mm, A1 18 mm from the left and 16.5 mm from the back of its 127 x 86 footprint, 40 tall, a
+  tube's floor 0.6 above the block's bottom. Here on the SBS 127.76 x 85.48 footprint, the grid kept
+  on the same centre. Hamilton's 3D model of the block (CPACTubeModule.x) draws the holes within
+  0.5 mm of these. A tube stands on the block's bottom; each position is sized to an Eppendorf 2 mL
+  tube (10.33 across) so that one stands centred on it.
+  """
+  tube = 10.33
+  a1_x = 18.0 + (127.76 - 127.0) / 2
+  a1_y = (86.0 - 16.5) - (86.0 - 85.48) / 2
+  return TubeRack(
+    name=name,
+    size_x=127.76,
+    size_y=85.48,
+    size_z=40.0,
+    model=hamilton_cpac_tube_block_2mL.__name__,
+    ordered_items=create_ordered_items_2d(
+      ResourceHolder,
+      num_items_x=6,
+      num_items_y=4,
+      dx=a1_x - tube / 2,
+      dy=a1_y - 3 * 18.0 - tube / 2,
+      dz=0.0,
+      item_dx=18.0,
+      item_dy=18.0,
+      size_x=tube,
+      size_y=tube,
+      size_z=40.0,
+      name_prefix=name,
+    ),
+  )
 
 # -- Plate storage ---------------------------------------------------------------------------
 

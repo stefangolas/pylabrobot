@@ -80,6 +80,8 @@ pylabrobot = [
   "resources/thermo_fisher/resource_model/*.glb",
   "resources/thermo_fisher/resource_model/*.geometry.json",
   "byonoy/resource_model/*.glb",
+  "inheco/resource_model/*.glb",
+  "inheco/resource_model/*.geometry.json",
 ]
 
 [tool.ruff]

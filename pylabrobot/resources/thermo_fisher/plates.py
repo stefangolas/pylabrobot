@@ -514,12 +514,13 @@ def thermo_TS_nalgene_1_troughplate_300mL_Fb(name: str) -> Plate:
 
 # # # # # # # # # # thermo_TS_abgene_96_wellplate_800uL_Vb # # # # # # # # # #
 
-# Abgene 0.8 mL "MIDI" well, from Hamilton's 3D model of the plate: a cone from a 1.26 mm floor
-# widening to 7.32 mm over 3.79 mm, then a 7.32 mm cylinder to the top of the plate.
-_ABGENE_MIDI_CONE_HEIGHT = 3.79
-_ABGENE_MIDI_FLOOR_RADIUS = 1.26 / 2
-_ABGENE_MIDI_RADIUS = 7.32 / 2
-_ABGENE_MIDI_CAVITY_DEPTH = 26.8
+# Abgene 0.8 mL "MIDI" well, as Hamilton's labware definition gives it (abgene_midi.ctr, the one
+# Venus pipettes with): a cone from a 2.4 mm floor widening to 6.8 mm over 3.8 mm, then a 6.8 mm
+# cylinder, 27 mm deep in all, its floor 3 mm above the plate's bottom.
+_ABGENE_MIDI_CONE_HEIGHT = 3.8
+_ABGENE_MIDI_FLOOR_RADIUS = 2.4 / 2
+_ABGENE_MIDI_RADIUS = 6.8 / 2
+_ABGENE_MIDI_CAVITY_DEPTH = 27.0
 
 
 def _abgene_midi_cone_volume(height_mm: float) -> float:
@@ -560,14 +561,14 @@ def thermo_TS_abgene_96_wellplate_800uL_Vb(name: str) -> Plate:
   - Catalogue numbers: AB-0859 (bulk), AB-0765 (individually wrapped).
   - Material: natural polypropylene; round wells, V-conical bottom; full skirt; ANSI/SLAS footprint.
   - Volume: 0.8 mL max. when sealed with an adhesive or heat seal; 0.70 mL working volume with cap
-    strips, 0.55 mL with a sealing mat (manufacturer). The geometric cavity used here holds about
-    1030 uL to the brim.
-  - Thermo publishes no dimensioned drawing. Dimensions are from Hamilton's 3D model of the plate
-    (`0.8 mL Abgene MIDI Plate.x`, NGS STAR labware), which agrees with Hamilton's labware
-    definition (`ABGENE_MIDI.rck`/`abgene_midi.ctr`: well base 3 mm, depth 27 mm, 3.8 mm cone):
-    height 29.99 mm, A1 at 14.38 x 11.24 mm (ANSI), outer well tip 2.99 mm above the base plane,
-    cavity floor 0.2 mm above that. Hamilton's labware definition gives the well as 6.8 mm across;
-    the model's wells measure 7.32 mm.
+    strips, 0.55 mL with a sealing mat (manufacturer). The cavity used here holds about 910 uL to
+    the brim.
+  - Thermo publishes no dimensioned drawing. The well is Hamilton's labware definition
+    (`ABGENE_MIDI.rck` / `abgene_midi.ctr`, NGS STAR labware): 6.8 mm across, a 3.8 mm cone from
+    2.4 mm, floor 3 mm above the plate's bottom, 27 mm deep, so 30 mm to the top; A1 at 14.38 x
+    11.24 mm (ANSI). Hamilton's 3D model of the plate (`0.8 mL Abgene MIDI Plate.x`) agrees on the
+    heights and grid; its wells are drawn 7.32 mm across. The well's floor thickness (0.2 mm) is
+    from that model.
 
   https://www.thermofisher.com/order/catalog/product/AB0859
   """
@@ -575,7 +576,7 @@ def thermo_TS_abgene_96_wellplate_800uL_Vb(name: str) -> Plate:
     name=name,
     size_x=127.76,
     size_y=85.48,
-    size_z=29.99,
+    size_z=30.0,
     lid=None,
     model=thermo_TS_abgene_96_wellplate_800uL_Vb.__name__,
     plate_type="skirted",
@@ -583,14 +584,14 @@ def thermo_TS_abgene_96_wellplate_800uL_Vb(name: str) -> Plate:
       Well,
       num_items_x=12,
       num_items_y=8,
-      dx=14.38 - 7.32 / 2,
-      dy=85.48 - 11.24 - 7 * 9 - 7.32 / 2,
-      dz=2.99,
+      dx=14.38 - 6.8 / 2,
+      dy=85.48 - 11.24 - 7 * 9 - 6.8 / 2,
+      dz=3.0 - 0.2,
       item_dx=9,
       item_dy=9,
-      size_x=7.32,
-      size_y=7.32,
-      size_z=29.99 - 2.99,
+      size_x=6.8,
+      size_y=6.8,
+      size_z=30.0 - (3.0 - 0.2),
       bottom_type=WellBottomType.V,
       material_z_thickness=0.2,
       max_volume=_compute_volume_from_height_thermo_TS_abgene_96_wellplate_800uL_Vb(

@@ -21,7 +21,11 @@ from pylabrobot.resources.hamilton.heater_shakers import (
   hamilton_hhs_nest_pcr96_abi,
   hamilton_hhs_nest_sarstedt_1_5mm,
 )
-from pylabrobot.resources.hamilton.mfx_modules import hamilton_mfx_cpac_bracket
+from pylabrobot.resources.eppendorf import Eppendorf_DNA_LoBind_2ml_Ub
+from pylabrobot.resources.hamilton.mfx_modules import (
+  hamilton_cpac_tube_block_2mL,
+  hamilton_mfx_cpac_bracket,
+)
 from pylabrobot.resources.hamilton.mfx_carriers import (
   MFX_CAR_L4_SHAKER,
   hamilton_mfx_carrier_7T_shaker,
@@ -176,6 +180,24 @@ class CPACOnShakerCarrierTests(unittest.TestCase):
     self.assertAlmostEqual(at.y + cpac.get_size_y() / 2, 58.05)
     self.assertAlmostEqual(at.z, 18.0)
 
+  def test_the_tube_block_stands_where_hamilton_puts_it(self):
+    """Catalogue "CPAC 2mL": the block's bottom at 102.6 above the carrier's bottom, its A1 at the
+    site's X 15.25 + 18 and, from the back of the 86 mm site at Y 15.05 + 86, 16.5 in."""
+    cpac = inheco_cpac_ultraflat(
+      "cpac", control_box=InhecoTECControlBox(), index=1, adapter="tubes_2mL"
+    )
+    carrier = hamilton_mfx_carrier_7T_shaker(
+      "car", modules={0: hamilton_mfx_cpac_bracket("bracket", cpac)}
+    )
+    block = hamilton_cpac_tube_block_2mL("block")
+    cpac.assign_child_resource(block)
+    tube = Eppendorf_DNA_LoBind_2ml_Ub("tube")
+    block["A1"] = tube
+    self.assertAlmostEqual(block.get_location_wrt(carrier).z, 102.6, places=6)
+    centre = tube.get_location_wrt(carrier) + tube.get_anchor("c", "c", "b")
+    self.assertAlmostEqual(centre.x, 15.25 + 18.0, places=6)
+    self.assertAlmostEqual(centre.y, 15.05 + 86.0 - 16.5, places=6)
+
   def test_an_unknown_adapter_is_refused(self):
     with self.assertRaises(ValueError):
       inheco_cpac_ultraflat("cpac", control_box=InhecoTECControlBox(), index=1, adapter="x")
@@ -197,6 +219,8 @@ class ModelTests(unittest.TestCase):
     # 1.5 mm right of the template origin (Hamilton's 3DxOffset); the rear tab reaches 526.5
     "MFX_CAR_7T_shaker": ([1.5, 0, 0], [156.0, 526.5, 21.5]),
     "hamilton_mfx_cpac_bracket": ([0, 0, 0], [134.0, 100.0, 10.0]),
+    # 134.5 x 103.7 around the SBS footprint's centre; its top plate reaches 41.07
+    "hamilton_cpac_tube_block_2mL": ([-3.37, -9.206, -0.034], [131.13, 94.49, 41.074]),
   }
 
   def test_every_model_is_in_its_resource_frame(self):

@@ -51,6 +51,11 @@ CPAC_ULTRAFLAT_PLATE_SEAT: Dict[str, float] = {
   # CPAC on Hamilton's 10 mm bracket at 91.5 and 92.8 above the carrier's bottom (plate at 8).
   "abgene_midi": 73.5,
   "pcr_low_profile": 74.8,
+  # Hamilton's 2 mL tube block (`hamilton_cpac_tube_block_2mL`), its bottom where Hamilton puts it:
+  # the catalogue's "CPAC 2mL" site 102.6 above the carrier's bottom, which is also where Hamilton's
+  # models stack it (10 mm bracket on the 8 mm plate, then the CPAC). No protocol uses the block,
+  # so nothing has corrected it as the plate seats above were corrected.
+  "tubes_2mL": 84.6,
 }
 
 

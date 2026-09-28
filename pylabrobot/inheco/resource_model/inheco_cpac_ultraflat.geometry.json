@@ -1,0 +1,1133 @@
+{
+  "model": "inheco_cpac_ultraflat",
+  "variant": "standard 7000166 Ultraflat HT 2-TEC",
+  "drawing_family": [
+    "7000166",
+    "7000190",
+    "7000165"
+  ],
+  "excluded_variant": "7000165 reversed/downward airflow is not modeled",
+  "units": "m",
+  "up": "Z",
+  "sources": [
+    {
+      "path": "C:\\Users\\stefa\\plr-viz3d-scratch\\hamilton_library\\references\\inheco_cpac_brochure.pdf",
+      "sha256": "80d271fb29538803a22d23b8dcdb206627778e4394ff3eb27538b5ee555c197c",
+      "role": "authoritative",
+      "use": "p4 left column, Drawings CPAC Ultraflat; visually confirmed numbers despite shifted text",
+      "archived_url": "https://web.archive.org/web/20220116105940/https://www.inheco.com/data/pdf/cpac-brochure-1013-1032-34.pdf"
+    },
+    {
+      "path": "C:\\Users\\stefa\\plr-viz3d-scratch\\hamilton_library\\references\\cpac_ultraflat_drawing.png",
+      "sha256": "999509dabae6db1ed637f89efeaef378ed90ef7c20983d80444a297ac6936478",
+      "role": "authoritative_render",
+      "use": "Zoomed rendering used to confirm dimension arrows"
+    },
+    {
+      "path": "C:\\Users\\stefa\\plr-viz3d-scratch\\hamilton_library\\tools\\mfx_extracted\\cpac.jpg",
+      "sha256": "b24c4dc99bd24f3dd1f936c34146cb6f10f3a14d850683a23931ee655fdeb165",
+      "role": "shape_finish_only",
+      "use": "Older Hamilton CPAC assembly; no dimensions transferred"
+    },
+    {
+      "path": "C:\\Users\\stefa\\NGS-Protocols\\assets\\NGSStar\\Roche\\Avenio CGP\\Library\\NGSStarLoading\\NGSStarChannelPictures\\CPACCarrier.jpg",
+      "sha256": "33534142887034430b852ce32022384422dff25fdfd3d8c793293df7832b7bf3",
+      "role": "shape_finish_only",
+      "use": "Rendered carrier setup; no placement or dimensions transferred"
+    },
+    {
+      "path": "C:\\Users\\stefa\\plr-viz3d-scratch\\hamilton_library\\references\\forum2979_midi_on_cpac.jpg",
+      "sha256": "89d250e687fc2b432dba23262e6f507a413fb47b734867fab62101a6445fbfcd",
+      "role": "shape_finish_only",
+      "use": "Dark upper CPAC frame on STAR; MIDI adapter geometry excluded"
+    }
+  ],
+  "dimensions": {
+    "overall_length": {
+      "value": 129,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 Ultraflat side view: 129 overall"
+    },
+    "overall_width": {
+      "value": 89,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 Ultraflat end view: 89 at thermal adapter"
+    },
+    "overall_height": {
+      "value": 80,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 end view: 80 from feet underside to adapter top"
+    },
+    "body_length": {
+      "value": 128,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 side view: 128"
+    },
+    "base_width": {
+      "value": 86,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 end view: 86"
+    },
+    "fixation_pitch_x": {
+      "value": 100,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 side view: foot fixation axes 100 apart"
+    },
+    "fixation_pitch_y": {
+      "value": 62,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 end view: foot fixation axes 62 apart"
+    },
+    "side_slot_length": {
+      "value": 60,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 side view: 60 bottom cutout"
+    },
+    "airflow_opening_width": {
+      "value": 46,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 end view: 46 clear underside opening"
+    },
+    "contact_length": {
+      "value": 113,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 top view: contact surface thermal adapter"
+    },
+    "contact_width": {
+      "value": 77,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 top view: contact surface thermal adapter"
+    },
+    "contact_corner_radius": {
+      "value": 5,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 top view: R5 contact surface corners"
+    },
+    "center_thread_nominal_diameter": {
+      "value": 3,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 top view: M3 centre thread; simplified nominal-diameter visual bore"
+    },
+    "foot_thread_nominal_diameter": {
+      "value": 4,
+      "units": "mm",
+      "status": "drawing",
+      "basis": "PDF p4 end view: FIXATION THREAD M4; simplified nominal-diameter visual bores"
+    },
+    "generic_adapter_thickness": {
+      "value": 8,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Not dimensioned. Generic blank seated flush to Z80; no plate-specific profile"
+    },
+    "contact_plate_thickness": {
+      "value": 3,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Visual construction below generic adapter"
+    },
+    "top_frame_bottom_z": {
+      "value": 64,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Approximate side-view proportions, not a height callout"
+    },
+    "top_frame_outer_corner_radius": {
+      "value": 5,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Rounded dark frame visible in top view; outer radius not dimensioned"
+    },
+    "support_wall_thickness": {
+      "value": 2,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Sheet-metal appearance in drawing/photos"
+    },
+    "support_wall_top_z": {
+      "value": 54,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Approximate side-view proportions"
+    },
+    "bottom_slot_height": {
+      "value": 12,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Only slot length 60 is dimensioned"
+    },
+    "fixation_pad_length": {
+      "value": 18,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Mounting lug proportions; centered on dimensioned X axes"
+    },
+    "fixation_pad_thickness": {
+      "value": 4,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Mounting lug proportions; underside stays at Z0"
+    },
+    "fin_z_interval": {
+      "value": [
+        28,
+        47
+      ],
+      "units": "mm",
+      "status": "estimate",
+      "basis": "End-view heatsink depiction; fin heights not dimensioned"
+    },
+    "fin_thickness": {
+      "value": 0.8,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Fine aluminum fin depiction"
+    },
+    "fin_pitch": {
+      "value": 2.6,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "31 visual fins spread across the end opening; pitch/count not called out"
+    },
+    "fin_end_inset": {
+      "value": 3.5,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Slight inset behind support ends"
+    },
+    "first_fin_center_y": {
+      "value": 5.5,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Centered 31-fin pack; not a mounting dimension"
+    },
+    "heatsink_base_thickness": {
+      "value": 4,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Bridge above fins"
+    },
+    "thermal_core_xy": {
+      "value": [
+        110,
+        79
+      ],
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Recessed thermal stack visible between housing and upper frame"
+    },
+    "thermal_core_z_interval": {
+      "value": [
+        51,
+        64
+      ],
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Undimensioned internal stack beneath frame"
+    },
+    "core_metal_seam_thickness": {
+      "value": 1.2,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Thin metal caps in side-view stack"
+    },
+    "fan_housing_z_interval": {
+      "value": [
+        7,
+        14
+      ],
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Simplified underside inlet; does not depict downward-venting 7000165"
+    },
+    "fan_support_tray_thickness": {
+      "value": 1,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Thin support tray linking the visual fan housing to the two side panels"
+    },
+    "fan_aperture_radius": {
+      "value": 20,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Visual circular opening within dimensioned 60 by 46 clearance"
+    },
+    "fan_housing_corner_radius": {
+      "value": 3,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Visual fan housing"
+    },
+    "fan_hub_radius": {
+      "value": 6,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Visual inlet fan hub"
+    },
+    "fan_blade_z_interval": {
+      "value": [
+        9,
+        10.2
+      ],
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Visual blade thickness and height"
+    },
+    "fan_blade_radial_interval": {
+      "value": [
+        5,
+        18.5
+      ],
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Five simplified swept blades"
+    },
+    "contact_screw_cross_offsets_xy": {
+      "value": [
+        35,
+        28
+      ],
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Four screws visible in top view; locations not dimensioned"
+    },
+    "contact_screw_head_diameter": {
+      "value": 8,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Head diameter estimated from top-view proportions"
+    },
+    "frame_screw_inset_xy": {
+      "value": [
+        5.5,
+        5.5
+      ],
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Four visible frame corner screws; centers not dimensioned"
+    },
+    "frame_screw_head_diameter": {
+      "value": 6.2,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Corner screw visual diameter"
+    },
+    "support_screw_head_diameter": {
+      "value": 6.8,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Two screws per long side, visible in side view"
+    },
+    "support_screw_center_z": {
+      "value": 50,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Side view, no height callout"
+    },
+    "screw_head_thickness": {
+      "value": 0.8,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Simplified recessed socket head"
+    },
+    "screw_socket_diameters": {
+      "value": [
+        3.36,
+        2.604,
+        2.856
+      ],
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Visual hex socket across corner diameters, not tool-size claims"
+    },
+    "head_recess_below_surface": {
+      "value": 0.08,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Avoid coplanar overlap; heads remain below mating faces"
+    },
+    "end_clamp_strap_size_xyz": {
+      "value": [
+        2,
+        10,
+        11
+      ],
+      "units": "mm",
+      "status": "estimate",
+      "basis": "End-view central clamp tab beneath thermal stack"
+    },
+    "cable_radius": {
+      "value": 2.2,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Cable appearance; not a dimensional callout"
+    },
+    "cable_gland_radius": {
+      "value": 3.8,
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Short integral strain-relief connector at cable exit"
+    },
+    "cable_gland_endpoints_xyz": {
+      "value": [
+        [
+          5.5,
+          79,
+          57
+        ],
+        [
+          5.5,
+          87,
+          57
+        ]
+      ],
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Chosen upper-left top-view cable exit (+Y)"
+    },
+    "cable_centerline_xyz": {
+      "value": [
+        [
+          5.5,
+          85,
+          57
+        ],
+        [
+          5.5,
+          94,
+          57
+        ],
+        [
+          6.5,
+          104,
+          56.5
+        ],
+        [
+          9,
+          113,
+          56.5
+        ]
+      ],
+      "units": "mm",
+      "status": "estimate",
+      "basis": "Short cable stub; routing/length unmeasured, overhang reported separately"
+    }
+  },
+  "frame": {
+    "origin": "Corner of 129 x 89 envelope, feet underside Z0",
+    "positive_x": "129 mm long axis, right in drawing top view",
+    "positive_y": "89 mm width axis, up in drawing top view",
+    "deck_front_negative_y": "Long silver support panel opposite cable-exit side",
+    "cable_side": "Near -X/+Y corner, exits toward +Y; user confirmation pending",
+    "body_envelope_mm": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        129,
+        89,
+        80
+      ]
+    ],
+    "body_bounds_mm": [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        129.0,
+        89.0,
+        80.0
+      ]
+    ],
+    "final_bounds_mm": [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        129.0,
+        113.88944,
+        80.0
+      ]
+    ],
+    "overhang_nodes": [
+      "cable"
+    ],
+    "orientation_is_a_choice": true
+  },
+  "features": {
+    "foot_fixation_axes_mm": [
+      [
+        14.5,
+        13.5
+      ],
+      [
+        14.5,
+        75.5
+      ],
+      [
+        114.5,
+        13.5
+      ],
+      [
+        114.5,
+        75.5
+      ]
+    ],
+    "center_m3_axis_mm": [
+      64.5,
+      44.5
+    ],
+    "contact_surface_xy_bounds_mm": [
+      [
+        8.0,
+        6.0
+      ],
+      [
+        121.0,
+        83.0
+      ]
+    ],
+    "contact_surface_z_mm": 72,
+    "adapter_top_z_mm": 80,
+    "adapter_thickness_mm": 8,
+    "contact_screw_centers_mm": [
+      [
+        29.5,
+        44.5
+      ],
+      [
+        99.5,
+        44.5
+      ],
+      [
+        64.5,
+        16.5
+      ],
+      [
+        64.5,
+        72.5
+      ]
+    ],
+    "frame_corner_screw_centers_mm": [
+      [
+        5.5,
+        5.5
+      ],
+      [
+        5.5,
+        83.5
+      ],
+      [
+        123.5,
+        5.5
+      ],
+      [
+        123.5,
+        83.5
+      ]
+    ],
+    "side_slot_x_interval_mm": [
+      34.5,
+      94.5
+    ],
+    "airflow_opening_y_interval_mm": [
+      21.5,
+      67.5
+    ],
+    "airflow": "Standard inlet from below, exhaust along X through fins; visual interpretation of arrows, not flow simulation"
+  },
+  "nodes": {
+    "support_front": {
+      "bounds_mm": [
+        [
+          0.5,
+          1.5,
+          0.0
+        ],
+        [
+          128.5,
+          3.5,
+          54.0
+        ]
+      ],
+      "triangles": 28,
+      "material": "support_satin_aluminum",
+      "description": "128 mm side support with centered 60 mm bottom slot"
+    },
+    "support_rear": {
+      "bounds_mm": [
+        [
+          0.5,
+          85.5,
+          0.0
+        ],
+        [
+          128.5,
+          87.5,
+          54.0
+        ]
+      ],
+      "triangles": 28,
+      "material": "support_satin_aluminum",
+      "description": "128 mm side support with centered 60 mm bottom slot"
+    },
+    "foot_0_0": {
+      "bounds_mm": [
+        [
+          5.5,
+          1.5,
+          0.0
+        ],
+        [
+          23.5,
+          21.5,
+          4.0
+        ]
+      ],
+      "triangles": 272,
+      "material": "support_satin_aluminum",
+      "description": "Nominal M4 visual through-bore on the dimensioned 100 x 62 mm fixation pattern"
+    },
+    "foot_0_1": {
+      "bounds_mm": [
+        [
+          5.5,
+          67.5,
+          0.0
+        ],
+        [
+          23.5,
+          87.5,
+          4.0
+        ]
+      ],
+      "triangles": 272,
+      "material": "support_satin_aluminum",
+      "description": "Nominal M4 visual through-bore on the dimensioned 100 x 62 mm fixation pattern"
+    },
+    "foot_1_0": {
+      "bounds_mm": [
+        [
+          105.5,
+          1.5,
+          0.0
+        ],
+        [
+          123.5,
+          21.5,
+          4.0
+        ]
+      ],
+      "triangles": 272,
+      "material": "support_satin_aluminum",
+      "description": "Nominal M4 visual through-bore on the dimensioned 100 x 62 mm fixation pattern"
+    },
+    "foot_1_1": {
+      "bounds_mm": [
+        [
+          105.5,
+          67.5,
+          0.0
+        ],
+        [
+          123.5,
+          87.5,
+          4.0
+        ]
+      ],
+      "triangles": 272,
+      "material": "support_satin_aluminum",
+      "description": "Nominal M4 visual through-bore on the dimensioned 100 x 62 mm fixation pattern"
+    },
+    "heatsink_fins": {
+      "bounds_mm": [
+        [
+          3.5,
+          5.1,
+          28.0
+        ],
+        [
+          125.5,
+          83.9,
+          47.0
+        ]
+      ],
+      "triangles": 372,
+      "material": "heatsink_aluminum",
+      "description": "31 visible longitudinal fins; all fin dimensions/count are estimates"
+    },
+    "heatsink_base": {
+      "bounds_mm": [
+        [
+          3.5,
+          5.1,
+          47.0
+        ],
+        [
+          125.5,
+          83.9,
+          51.0
+        ]
+      ],
+      "triangles": 12,
+      "material": "heatsink_aluminum",
+      "description": "Bridge above estimated fin pack"
+    },
+    "inlet_fan_housing": {
+      "bounds_mm": [
+        [
+          34.5,
+          21.5,
+          7.0
+        ],
+        [
+          94.5,
+          67.5,
+          14.0
+        ]
+      ],
+      "triangles": 784,
+      "material": "fan_polymer",
+      "description": "Simplified inlet inside the 60 x 46 mm underside opening"
+    },
+    "fan_support_tray": {
+      "bounds_mm": [
+        [
+          3.5,
+          3.5,
+          14.0
+        ],
+        [
+          125.5,
+          85.5,
+          15.0
+        ]
+      ],
+      "triangles": 528,
+      "material": "support_satin_aluminum",
+      "description": "Estimated thin fan support tray; aperture aligned to inlet fan"
+    },
+    "inlet_fan_hub": {
+      "bounds_mm": [
+        [
+          58.5,
+          38.5,
+          7.0
+        ],
+        [
+          70.5,
+          50.5,
+          14.0
+        ]
+      ],
+      "triangles": 380,
+      "material": "fan_polymer",
+      "description": "Estimated fan hub, visible from underneath"
+    },
+    "inlet_fan_blades": {
+      "bounds_mm": [
+        [
+          46.203112,
+          27.564083,
+          9.0
+        ],
+        [
+          82.907577,
+          62.746178,
+          10.2
+        ]
+      ],
+      "triangles": 60,
+      "material": "fan_polymer",
+      "description": "Five estimated visual fan blades"
+    },
+    "end_clamp_left": {
+      "bounds_mm": [
+        [
+          0.5,
+          39.5,
+          43.0
+        ],
+        [
+          2.5,
+          49.5,
+          54.0
+        ]
+      ],
+      "triangles": 12,
+      "material": "support_satin_aluminum",
+      "description": "Estimated central end-view clamp tab"
+    },
+    "end_clamp_right": {
+      "bounds_mm": [
+        [
+          126.5,
+          39.5,
+          43.0
+        ],
+        [
+          128.5,
+          49.5,
+          54.0
+        ]
+      ],
+      "triangles": 12,
+      "material": "support_satin_aluminum",
+      "description": "Estimated central end-view clamp tab"
+    },
+    "support_screws_front": {
+      "bounds_mm": [
+        [
+          11.1,
+          0.7,
+          46.6
+        ],
+        [
+          117.9,
+          1.5,
+          53.4
+        ]
+      ],
+      "triangles": 560,
+      "material": "screw_steel",
+      "description": "Two estimated socket heads per side"
+    },
+    "support_screws_rear": {
+      "bounds_mm": [
+        [
+          11.1,
+          87.5,
+          46.6
+        ],
+        [
+          117.9,
+          88.3,
+          53.4
+        ]
+      ],
+      "triangles": 560,
+      "material": "screw_steel",
+      "description": "Two estimated socket heads per side"
+    },
+    "thermal_core": {
+      "bounds_mm": [
+        [
+          9.5,
+          5.0,
+          52.2
+        ],
+        [
+          119.5,
+          84.0,
+          62.8
+        ]
+      ],
+      "triangles": 268,
+      "material": "insulation",
+      "description": "Recessed insulating thermal stack between the metal caps; undimensioned"
+    },
+    "core_cap_lower": {
+      "bounds_mm": [
+        [
+          9.5,
+          5.0,
+          51.0
+        ],
+        [
+          119.5,
+          84.0,
+          52.2
+        ]
+      ],
+      "triangles": 268,
+      "material": "machined_contact_aluminum",
+      "description": "Estimated thin metal seam on core"
+    },
+    "core_cap_upper": {
+      "bounds_mm": [
+        [
+          9.5,
+          5.0,
+          62.8
+        ],
+        [
+          119.5,
+          84.0,
+          64.0
+        ]
+      ],
+      "triangles": 268,
+      "material": "machined_contact_aluminum",
+      "description": "Estimated thin metal seam on core"
+    },
+    "top_frame": {
+      "bounds_mm": [
+        [
+          0.0,
+          0.0,
+          64.0
+        ],
+        [
+          129.0,
+          89.0,
+          80.0
+        ]
+      ],
+      "triangles": 1584,
+      "material": "black_anodized_frame",
+      "description": "Dark 129 x 89 surround; contact opening 113 x 77 R5"
+    },
+    "frame_corner_screws": {
+      "bounds_mm": [
+        [
+          2.4,
+          2.4,
+          79.12
+        ],
+        [
+          126.6,
+          86.6,
+          79.92
+        ]
+      ],
+      "triangles": 1120,
+      "material": "corner_screw_finish",
+      "description": "Four corner fasteners shown in top view; positions/head sizes estimated"
+    },
+    "thermal_contact_surface": {
+      "bounds_mm": [
+        [
+          8.0,
+          6.0,
+          69.0
+        ],
+        [
+          121.0,
+          83.0,
+          72.0
+        ]
+      ],
+      "triangles": 1696,
+      "material": "machined_contact_aluminum",
+      "description": "113 x 77 mm R5 interface with nominal M3 center bore; hidden by installed generic adapter"
+    },
+    "contact_surface_screws": {
+      "bounds_mm": [
+        [
+          25.5,
+          12.5,
+          71.12
+        ],
+        [
+          103.5,
+          76.5,
+          71.92
+        ]
+      ],
+      "triangles": 1120,
+      "material": "screw_steel",
+      "description": "Four contact-surface screws; head tops below interface"
+    },
+    "thermal_adapter": {
+      "bounds_mm": [
+        [
+          8.0,
+          6.0,
+          72.0
+        ],
+        [
+          121.0,
+          83.0,
+          80.0
+        ]
+      ],
+      "triangles": 268,
+      "material": "machined_contact_aluminum",
+      "description": "Removable generic flat blank, assumed 8 mm thick; top at Z80, no plate-specific features"
+    },
+    "cable_connector": {
+      "bounds_mm": [
+        [
+          1.7,
+          79.0,
+          53.2
+        ],
+        [
+          9.3,
+          87.0,
+          60.8
+        ]
+      ],
+      "triangles": 128,
+      "material": "cable_rubber",
+      "description": "Estimated short integral cable gland/strain relief at -X/+Y corner"
+    },
+    "cable": {
+      "bounds_mm": [
+        [
+          3.20603,
+          84.812438,
+          54.174649
+        ],
+        [
+          11.01653,
+          113.88944,
+          59.32535
+        ]
+      ],
+      "triangles": 2304,
+      "material": "cable_rubber",
+      "description": "Estimated short cable; exits +Y. Overhang is cosmetic and recorded."
+    }
+  },
+  "node_transforms": "Identity: mesh vertices are in resource coordinates, metres. thermal_adapter is a separate root-level named mesh.",
+  "materials": {
+    "support_satin_aluminum": {
+      "linear_rgba": [
+        0.57,
+        0.6,
+        0.61,
+        1
+      ],
+      "metallic": 0.82,
+      "roughness": 0.43,
+      "surface_grain": "brushed",
+      "status": "visual estimate; procedural texture if grain specified"
+    },
+    "machined_contact_aluminum": {
+      "linear_rgba": [
+        0.68,
+        0.7,
+        0.71,
+        1
+      ],
+      "metallic": 0.85,
+      "roughness": 0.36,
+      "surface_grain": "brushed",
+      "status": "visual estimate; procedural texture if grain specified"
+    },
+    "heatsink_aluminum": {
+      "linear_rgba": [
+        0.53,
+        0.56,
+        0.59,
+        1
+      ],
+      "metallic": 0.78,
+      "roughness": 0.4,
+      "surface_grain": null,
+      "status": "visual estimate; procedural texture if grain specified"
+    },
+    "black_anodized_frame": {
+      "linear_rgba": [
+        0.016,
+        0.02,
+        0.024,
+        1
+      ],
+      "metallic": 0.2,
+      "roughness": 0.46,
+      "surface_grain": "anodized",
+      "status": "visual estimate; procedural texture if grain specified"
+    },
+    "insulation": {
+      "linear_rgba": [
+        0.011,
+        0.014,
+        0.015,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.93,
+      "surface_grain": "insulation",
+      "status": "visual estimate; procedural texture if grain specified"
+    },
+    "fan_polymer": {
+      "linear_rgba": [
+        0.016,
+        0.02,
+        0.025,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.58,
+      "surface_grain": null,
+      "status": "visual estimate; procedural texture if grain specified"
+    },
+    "screw_steel": {
+      "linear_rgba": [
+        0.35,
+        0.38,
+        0.41,
+        1
+      ],
+      "metallic": 0.88,
+      "roughness": 0.28,
+      "surface_grain": null,
+      "status": "visual estimate; procedural texture if grain specified"
+    },
+    "corner_screw_finish": {
+      "linear_rgba": [
+        0.3,
+        0.23,
+        0.12,
+        1
+      ],
+      "metallic": 0.72,
+      "roughness": 0.4,
+      "surface_grain": null,
+      "status": "visual estimate; procedural texture if grain specified"
+    },
+    "cable_rubber": {
+      "linear_rgba": [
+        0.012,
+        0.014,
+        0.017,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.68,
+      "surface_grain": null,
+      "status": "visual estimate; procedural texture if grain specified"
+    }
+  },
+  "rendering_parameters": {
+    "brushed_texture_tile_mm": 12,
+    "other_grain_tile_mm": 8,
+    "rounded_corner_segments_per_quadrant": 16,
+    "fan_blade_count": 5,
+    "fin_count": 31,
+    "notes": "All internal fin/fan detail is estimated; nominal M3/M4 bores have no helical thread geometry."
+  },
+  "omissions": [
+    "No plate",
+    "No Abgene MIDI 3200376 or PCR 3200203 adapter",
+    "No CPAC 2 mL block",
+    "No remote cable plug",
+    "No labels or certification markings"
+  ],
+  "construction": "New drawing-based geometry. No dimensions copied from Hamilton cpac.x or the old 84.6 mm GLB.",
+  "generator": "C:\\Users\\stefa\\96channelhead\\build_inheco_ultraflat.py",
+  "generator_sha256": "cd474be2659173b4ce02819c2392740497b8df0f2bd0fc54534d8e569ebf43e9",
+  "glb_sha256": "b5386937433976a3ba52aba8dc99d304590beea29b8192e99cc5cd376ca04d9f",
+  "triangles": 13448
+}
