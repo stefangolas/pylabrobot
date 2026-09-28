@@ -1,4 +1,5 @@
 import warnings
+from typing import Literal
 
 from pylabrobot.resources.tip import TipCreator
 from pylabrobot.resources.tip_rack import (
@@ -432,3 +433,64 @@ def HTF(name: str) -> EmbeddedTipRack:
 
 def HT(name: str) -> EmbeddedTipRack:
   raise NotImplementedError("HT is deprecated. use hamilton_96_tiprack_1000uL instead")
+
+
+# -- CO-RE 96 tip supports ------------------------------------------------------------------
+# Frames the 96-head drops tips into, so that channels can pick them up row- or column-wise. A tip
+# rests higher in a support than in its rack: from Hamilton's definitions, a tip's end is this
+# much higher than in the tip rack of the same size (ML_STAR\96COREHEAD\Core96_TipSupport_*_L.rck
+# and, CO-RE II, 'TipSupport CO-RE II' Core2_96_TipSupport_*_L.rck, against ST_L, LT_L, HT_L and
+# TIP_50ul_L.rck), with the support's own height.
+_TIP_SUPPORT = {  # tip size: (frame height, raise over the rack)
+  "10uL": (20.0, -11.45 - -22.5),
+  "50uL": (20.0, -29.5 - -40.9),
+  "300uL": (20.0, -39.0 - -50.5),
+  "1000uL": (13.0, -72.5 - -83.5),
+}
+_TIP_SUPPORT_CORE_II = {
+  "10uL": (23.8, -7.65 - -22.5),
+  "50uL": (23.8, -25.7 - -40.9),
+  "300uL": (23.8, -35.2 - -50.5),
+  "1000uL": (16.8, -68.7 - -83.5),
+}
+
+
+def hamilton_96_tip_support(
+  name: str,
+  tip_size: Literal["10uL", "50uL", "300uL", "1000uL"],
+  make_tip: TipCreator,
+  core_ii: bool = False,
+  with_tips: bool = False,
+) -> EmbeddedTipRack:
+  """Hamilton CO-RE 96 tip support ('Core96_TipSupport', CO-RE II 'Core2_96_TipSupport') for tips
+  of `tip_size` (with or without filter), made by `make_tip`. Empty by default: the 96-head fills
+  it.
+
+  The grid is the standard rack's (`hamilton_96_tiprack_standard`); tips stand higher, as
+  Hamilton's definitions give it.
+  """
+  frame, raise_ = (_TIP_SUPPORT_CORE_II if core_ii else _TIP_SUPPORT)[tip_size]
+  return EmbeddedTipRack(
+    name=name,
+    size_x=122.4,
+    size_y=82.6,
+    size_z=frame,
+    model=hamilton_96_tip_support.__name__,
+    sinking_depth=6.0,
+    ordered_items=create_ordered_items_2d(
+      TipSpot,
+      num_items_x=12,
+      num_items_y=8,
+      dx=8.1,
+      dy=6.2,
+      dz=7.7 - 0.2 + raise_,
+      item_dx=9.0,
+      item_dy=9.0,
+      size_x=7.2,
+      size_y=7.2,
+      make_tip=make_tip,
+      name_prefix=name,
+    ),
+    with_tips=with_tips,
+    frame_height=frame - 10.0,
+  )

@@ -5,7 +5,9 @@ from .core_grippers import (
   prep_core_gripper_mount,
 )
 from .hamilton_decks import HamiltonDeck
+from .fixtures import *
 from .hamilton_tool import HamiltonTool
+from .lids import *
 from .mfx_carriers import *
 from .mfx_modules import *
 from .heater_shakers import *
@@ -25,4 +27,5 @@ from .tip_racks import *
 from .trough_carriers import *
 from .troughs import *
 from .tube_carriers import *
+from .tube_racks import *
 from .vantage_decks import VantageDeck

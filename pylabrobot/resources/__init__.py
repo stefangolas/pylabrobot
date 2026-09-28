@@ -44,6 +44,7 @@ from .porvair import *
 from .powder import Powder
 from .resource import Resource
 from .resource_stack import ResourceStack
+from .roche import *
 from .resource_state import (
   TipDropIntent,
   TipPickupIntent,

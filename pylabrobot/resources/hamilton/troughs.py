@@ -207,3 +207,51 @@ def hamilton_1_trough_60ml_Vb(name: str) -> Trough:  # remove 2026-07
     stacklevel=2,
   )
   return hamilton_1_trough_60mL_Vb(name)
+
+
+# --------------------------------------------------------------------------- #
+# Hamilton 1-trough 20 mL (V-bottom)
+# --------------------------------------------------------------------------- #
+
+# Hamilton's container definition shared by its 20 mL reservoirs (roche_20ml_reservoir.ctr), per
+# pipetting position: a 17.5 mm V-shaped section averaging 65.9734 mm^2 (a 12 -> 6 mm frustum),
+# then 12 x 9 mm straight up. A reservoir has eight positions in a row.
+_RESERVOIR_20ML_V_HEIGHT = 17.5
+_RESERVOIR_20ML_V_AREA = 8 * 65.9734
+_RESERVOIR_20ML_AREA = 8 * 108.0
+
+
+def reservoir_20mL_volume_from_height(height_mm: float) -> float:
+  """Volume (uL) of liquid `height_mm` above the floor of a 20 mL reservoir."""
+  v = min(height_mm, _RESERVOIR_20ML_V_HEIGHT)
+  return v * _RESERVOIR_20ML_V_AREA + max(0.0, height_mm - v) * _RESERVOIR_20ML_AREA
+
+
+def reservoir_20mL_height_from_volume(volume_ul: float) -> float:
+  """Liquid height (mm) above the floor of a 20 mL reservoir holding `volume_ul`."""
+  v_volume = _RESERVOIR_20ML_V_HEIGHT * _RESERVOIR_20ML_V_AREA
+  if volume_ul <= v_volume:
+    return volume_ul / _RESERVOIR_20ML_V_AREA
+  return _RESERVOIR_20ML_V_HEIGHT + (volume_ul - v_volume) / _RESERVOIR_20ML_AREA
+
+
+def hamilton_1_trough_20mL_Vb(name: str) -> Trough:
+  """Hamilton reagent container 20 mL, natural (Hamilton's definition 'RGT_20mL_reservoir', 10x
+  Genomics Chromium GEM-X protocol). Hamilton cat. no. not stated.
+
+  20 x 89.9 x 38, its floor 10.4 above its bottom, eight positions 9.2 apart. The container shape
+  is Hamilton's 20 mL reservoir definition, up to the top: about 18 mL.
+  """
+  floor = 10.4
+  return Trough(
+    name=name,
+    size_x=20.0,
+    size_y=89.9,
+    size_z=38.0,
+    material_z_thickness=floor,
+    max_volume=reservoir_20mL_volume_from_height(38.0 - floor),
+    model=hamilton_1_trough_20mL_Vb.__name__,
+    bottom_type=TroughBottomType.V,
+    compute_volume_from_height=reservoir_20mL_volume_from_height,
+    compute_height_from_volume=reservoir_20mL_height_from_volume,
+  )

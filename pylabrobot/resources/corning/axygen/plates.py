@@ -133,3 +133,56 @@ def Cor_Axy_96_wellplate_500uL_Ub(name: str, with_lid: bool = False) -> Plate:  
     stacklevel=2,
   )
   return cor_axy_96_wellplate_500uL_Ub(name)
+
+
+# # # # # # # # # # cor_axy_1_troughplate_300mL_Vb # # # # # # # # # #
+
+# One reservoir over the 8 x 12 grid: 108 x 72, 44 deep (Hamilton's axygen_dw_96_res.ctr, 9 x 9 per
+# pipetting position, h * 81 each).
+_AXY_300ML_AREA = 108.0 * 72.0
+
+
+def _compute_volume_from_height_cor_axy_1_troughplate_300mL_Vb(height_mm: float) -> float:
+  return height_mm * _AXY_300ML_AREA
+
+
+def _compute_height_from_volume_cor_axy_1_troughplate_300mL_Vb(volume_ul: float) -> float:
+  return volume_ul / _AXY_300ML_AREA
+
+
+def cor_axy_1_troughplate_300mL_Vb(name: str) -> Plate:
+  """Axygen single-well reservoir, 300 mL, with 96 V-shaped bottoms (Corning Axygen).
+
+  From Hamilton's definition 'Axygen_DW_96_res' ("Axygen Trough (300 mL)"; NGS STAR KAPA, QIAseq
+  and 10x Genomics protocols): 47 tall; the reservoir spans the 96 positions, A1 at 14.38 x 11.24
+  (ANSI), 44 deep from its floor at the bottom. Hamilton's container is straight-walled, leaving
+  the V-bottoms out of the volume: about 342 mL to the top.
+  """
+  return Plate(
+    name=name,
+    size_x=127.76,
+    size_y=85.48,
+    size_z=47.0,
+    lid=None,
+    model=cor_axy_1_troughplate_300mL_Vb.__name__,
+    ordered_items=create_ordered_items_2d(
+      Well,
+      num_items_x=1,
+      num_items_y=1,
+      dx=14.38 - 4.5,
+      dy=85.48 - 11.24 - 7 * 9 - 4.5,
+      dz=0.0,
+      item_dx=108.0,
+      item_dy=72.0,
+      size_x=108.0,
+      size_y=72.0,
+      size_z=44.0,
+      bottom_type=WellBottomType.V,
+      material_z_thickness=0.0,
+      max_volume=44.0 * _AXY_300ML_AREA,
+      cross_section_type=CrossSectionType.RECTANGLE,
+      compute_volume_from_height=_compute_volume_from_height_cor_axy_1_troughplate_300mL_Vb,
+      compute_height_from_volume=_compute_height_from_volume_cor_axy_1_troughplate_300mL_Vb,
+      name_prefix=name,
+    ),
+  )
