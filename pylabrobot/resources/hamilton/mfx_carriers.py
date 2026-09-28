@@ -51,7 +51,6 @@ def hamilton_mfx_carrier_L5_base(name: str, modules: Dict[int, ResourceHolder]) 
   )
 
 
-
 def hamilton_mfx_carrier_L5_2MTP_MIDI_2DWP_HP_tabbed(name: str) -> MFXCarrier:
   """Hamilton's NGS STAR carrier 'MFX_CAR_2MTP HPTab_MIDI HPTab_2DWP HPTab': an L5 base with HP
   Tabbed nests, from the front: two DWP (6601988-01), a MIDI (6600518-01), two MTP (6601987-01).
@@ -81,6 +80,31 @@ def hamilton_mfx_carrier_7T_odtc(
   158.8, 94.5 above the carrier's bottom, 127 x 86). The lid park's lid site is 3_MFX (X 15.25,
   Y 14.1, 107).
   """
+  return _odtc_carrier(name, odtc, lid_park, odtc_site_z=94.5)
+
+
+def hamilton_mfx_carrier_7T_odtc_v2(
+  name: str, odtc: Optional[ResourceHolder] = None, lid_park: bool = True
+) -> MFXCarrier:
+  """Hamilton's revised template for the same carrier, 'MFX_CAR_ODTC_MTP_V2' (NGS STAR KAPA
+  HyperPlus, PacBio and Avenio kits): the ODTC's plate site 2.6 higher, at 97.1 above the
+  carrier's bottom (its lid site at 109.1); everything else as `hamilton_mfx_carrier_7T_odtc`.
+
+  The two templates share one 3D model, and the Bio-Rad plate definition shipped with V2 changes
+  only its well opening (5.40 -> 5.46), so the 2.6 is a change to the site, not to the plate. The
+  ODTC is raised to match and stands 2.6 above the carrier's plate: Hamilton's data does not say
+  what physically raises it.
+
+  V2 is also anchored differently: one track wide, at the carrier's right, with every site 201.8
+  to the left and 12.5 in front of V1's. That is where the kits mount the carrier (left of track 1,
+  see the NGS decks), not a property of the carrier, so it is not modelled here.
+  """
+  return _odtc_carrier(name, odtc, lid_park, odtc_site_z=97.1)
+
+
+def _odtc_carrier(
+  name: str, odtc: Optional[ResourceHolder], lid_park: bool, odtc_site_z: float
+) -> MFXCarrier:
   sites: Dict[int, ResourceHolder] = {}
   if lid_park:
     park = hamilton_mfx_odtc_lid_park(f"{name}_lid_park")
@@ -91,7 +115,7 @@ def hamilton_mfx_carrier_7T_odtc(
     sites[0] = park
   if odtc is not None:
     # the template's 127 x 86 plate site, an SBS plate centred on it
-    plate = Coordinate(15.25 + (127.0 - 127.76) / 2, 158.8 + (86.0 - 85.48) / 2, 94.5)
+    plate = Coordinate(15.25 + (127.0 - 127.76) / 2, 158.8 + (86.0 - 85.48) / 2, odtc_site_z)
     odtc.location = plate - odtc.child_location
     sites[1] = odtc
   return MFXCarrier(
@@ -102,6 +126,7 @@ def hamilton_mfx_carrier_7T_odtc(
     sites=sites,
     model="MFX_CAR_7T_shaker",
   )
+
 
 def MFX_CAR_L4_SHAKER(name: str, modules: Dict[int, ResourceHolder]) -> MFXCarrier:
   """Hamilton cat. no.: 187001

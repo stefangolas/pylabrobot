@@ -8,7 +8,10 @@ from pylabrobot.legacy.thermocycling.chatterbox import ThermocyclerChatterboxBac
 from pylabrobot.legacy.thermocycling.inheco import inheco_odtc
 from pylabrobot.resources import biorad_96_wellplate_200uL_Vb, hamilton_pcr_comfort_lid
 from pylabrobot.resources.biorad.plates_tests import glb_bounds_mm
-from pylabrobot.resources.hamilton.mfx_carriers import hamilton_mfx_carrier_7T_odtc
+from pylabrobot.resources.hamilton.mfx_carriers import (
+  hamilton_mfx_carrier_7T_odtc,
+  hamilton_mfx_carrier_7T_odtc_v2,
+)
 
 HERE = Path(__file__).parent
 
@@ -53,6 +56,36 @@ class ODTCCarrierTests(unittest.TestCase):
     at = self.odtc.get_location_wrt(self.carrier)
     self.assertAlmostEqual(at.x + self.odtc.get_size_x() / 2, 157.5 / 2)
     self.assertAlmostEqual(at.z, 8.0)
+
+
+class ODTCCarrierV2Tests(unittest.TestCase):
+  """`MFX_CAR_ODTC_MTP_V2.tml` (identical in the KAPA HyperPlus, PacBio and Avenio kits but for site
+  names): sites 3_MFX (-186.55, 1.6, 107), 1_ODTC (-186.55, 146.3, 97.1), 2_ODTC_LID (109.1). In
+  V1's frame, which is the carrier's, that is every site 201.8 left and 12.5 in front (the
+  mounting) and the ODTC's two 2.6 higher."""
+
+  MOUNT = (-201.8, -12.5, 0.0)
+
+  def setUp(self):
+    self.odtc = inheco_odtc("odtc", ThermocyclerChatterboxBackend())
+    self.carrier = hamilton_mfx_carrier_7T_odtc_v2("car", self.odtc)
+
+  def assertTemplateSite(self, got, want):
+    for g, m, w in zip(got, self.MOUNT, want):
+      self.assertAlmostEqual(g + m, w, places=6)
+
+  def test_the_plate_and_its_lid(self):
+    plate = biorad_96_wellplate_200uL_Vb("plate")
+    self.odtc.assign_child_resource(plate)
+    self.assertTemplateSite(site_corner(plate, self.carrier), (-186.55, 146.3, 97.1))
+    lid = hamilton_pcr_comfort_lid("lid")
+    plate.assign_child_resource(lid)
+    self.assertTemplateSite(site_corner(lid, self.carrier), (-186.55, 146.3, 109.1))
+
+  def test_a_parked_lid(self):
+    lid = hamilton_pcr_comfort_lid("lid")
+    self.carrier.sites[0].assign_child_resource(lid)
+    self.assertTemplateSite(site_corner(lid, self.carrier), (-186.55, 1.6, 107.0))
 
 
 class ODTCCoverTests(unittest.TestCase):
