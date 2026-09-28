@@ -5,6 +5,10 @@ that is three resources, each placing the next through its own `child_location`:
 
   MFX shaker carrier slot -> HamiltonHeaterShaker -> nest (PlateHolder) -> plate
 
+For flat MTP nests, Hamilton raises the unit on a 29 mm riser, one more resource under it:
+
+  MFX shaker carrier slot -> riser -> HamiltonHeaterShaker -> flat MTP nest -> plate
+
 Sources, and how each number was found:
   - Hamilton's Multiflex Carrier Assistant v4.10 catalogue (`MultiMFX.INI`): each nest's site
     height and footprint, and its Y shift. These reproduce every HHS site of the Venus-assembled
@@ -34,6 +38,12 @@ HHS_BODY_HEIGHT = 72.9
 # carrier) and the unit's centre (78.75) relate.
 _SITE_X = (HHS_SIZE_X - 127.0) / 2  # 10.06
 _SITE_Y = (HHS_SIZE_Y - 86.0) / 2  # 9.36
+
+# The riser Hamilton stands a unit on for flat MTP nests: HHS_FlatMTP.x is HHS_FlatDWP.x's unit on
+# this block, and the catalogue's flat MTP site is its flat DWP site plus exactly this height.
+HHS_RISER_SIZE_X = 148.0
+HHS_RISER_SIZE_Y = 105.0
+HHS_RISER_HEIGHT = 29.0
 
 # The carrier's plate, where every unit's foot stands (the MFX shaker carrier; PLR's own
 # `MFX_CAR_L4_SHAKER` measures the same 8.0).
@@ -76,9 +86,32 @@ def hamilton_heater_shaker(name: str, nest: Optional[PlateHolder] = None) -> Ham
   return hhs
 
 
-def _nest(name: str, model: str, site_z: float, y_shift: float) -> PlateHolder:
-  """A nest whose plate site is `site_z` above the carrier's bottom, as the catalogue gives it."""
-  seat = site_z - _CARRIER_FLOOR - HHS_BODY_HEIGHT
+def hamilton_heater_shaker_riser(
+  name: str, heater_shaker: Optional[HamiltonHeaterShaker] = None
+) -> ResourceHolder:
+  """The 29 mm block a Heater Shaker stands on for flat MTP nests, with `heater_shaker` on it if
+  given. From Hamilton's model of the unit with a flat MTP nest (HHS_FlatMTP.x); no part number
+  in the catalogue. The unit stands centred on it."""
+  riser = ResourceHolder(
+    name=name,
+    size_x=HHS_RISER_SIZE_X,
+    size_y=HHS_RISER_SIZE_Y,
+    size_z=HHS_RISER_HEIGHT,
+    child_location=Coordinate(
+      (HHS_RISER_SIZE_X - HHS_SIZE_X) / 2, (HHS_RISER_SIZE_Y - HHS_SIZE_Y) / 2, HHS_RISER_HEIGHT
+    ),
+    category="heater_shaker_riser",
+    model="hamilton_heater_shaker_riser",
+  )
+  if heater_shaker is not None:
+    riser.assign_child_resource(heater_shaker)
+  return riser
+
+
+def _nest(name: str, model: str, site_z: float, y_shift: float, riser: float = 0) -> PlateHolder:
+  """A nest whose plate site is `site_z` above the carrier's bottom, as the catalogue gives it,
+  on a unit raised by `riser`."""
+  seat = site_z - _CARRIER_FLOOR - riser - HHS_BODY_HEIGHT
   return PlateHolder(
     name=name,
     size_x=HHS_SIZE_X,
@@ -98,14 +131,19 @@ def _nest(name: str, model: str, site_z: float, y_shift: float) -> PlateHolder:
 
 
 def hamilton_hhs_nest_flat_mtp_2mm(name: str) -> PlateHolder:
-  """HHS 2 mm flat MTP nest, Hamilton cat. no. 199033."""
-  return _nest(name, "hamilton_hhs_nest_flat_mtp", site_z=112.7, y_shift=-1.05)
+  """HHS 2 mm flat MTP nest, Hamilton cat. no. 199033. Its unit stands on
+  `hamilton_heater_shaker_riser`."""
+  return _nest(
+    name, "hamilton_hhs_nest_flat_mtp", site_z=112.7, y_shift=-1.05, riser=HHS_RISER_HEIGHT
+  )
 
 
 def hamilton_hhs_nest_flat_mtp_3mm(name: str) -> PlateHolder:
-  """HHS 3 mm flat MTP nest, Hamilton cat. no. 199034. A flat DWP nest on a 29 mm riser, in
-  Hamilton's model."""
-  return _nest(name, "hamilton_hhs_nest_flat_mtp", site_z=112.7, y_shift=-1.55)
+  """HHS 3 mm flat MTP nest, Hamilton cat. no. 199034. Its unit stands on
+  `hamilton_heater_shaker_riser`."""
+  return _nest(
+    name, "hamilton_hhs_nest_flat_mtp", site_z=112.7, y_shift=-1.55, riser=HHS_RISER_HEIGHT
+  )
 
 
 def hamilton_hhs_nest_flat_dwp_2mm(name: str) -> PlateHolder:

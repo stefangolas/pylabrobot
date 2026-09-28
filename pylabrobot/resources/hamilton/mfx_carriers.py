@@ -76,21 +76,19 @@ def hamilton_mfx_carrier_7T_shaker(name: str, modules: Dict[int, ResourceHolder]
   """Hamilton MFX 4 position carrier for Heater Shakers ('MFX_CAR_7T', the Multiflex Carrier
   Assistant's shaker carrier). 7 tracks wide; index 0 is the front position (Hamilton's position 4).
 
-  Each position is a Hamilton Heater Shaker's footprint (`hamilton_heater_shaker`), centred in its
-  slot on the carrier's 8 mm plate, 120 mm apart. From Hamilton's data: the catalogue gives the
-  pitch (-120 mm from position 1 at the back) and the site origin (15.25, 375.05); the carrier's 3D
-  model and the Venus-assembled carriers place each unit's centre at X 78.75, Y 58.05 + 120 i, on
-  the plate at Z 8. `MFX_CAR_L4_SHAKER` is the same carrier with positions measured in the lab
+  Each position holds a Hamilton Heater Shaker (`hamilton_heater_shaker`), or one on its riser
+  (`hamilton_heater_shaker_riser`), centred in its slot on the carrier's 8 mm plate, 120 mm
+  apart. From Hamilton's data: the catalogue gives the pitch (-120 mm from position 1 at the back)
+  and the site origin (15.25, 375.05); the carrier's 3D model and the Venus-assembled carriers
+  place each unit's centre at X 78.75, Y 58.05 + 120 i, on the plate at Z 8. `MFX_CAR_L4_SHAKER` is the same carrier with positions measured in the lab
   (365.0 tested with an HHS, 0.7 mm from this) and two interpolated at a 121 mm pitch.
   """
-  from pylabrobot.resources.hamilton.heater_shakers import HHS_SIZE_X, HHS_SIZE_Y
-
-  locations = [
-    Coordinate(78.75 - HHS_SIZE_X / 2, 58.05 + 120.0 * i - HHS_SIZE_Y / 2, 8.0) for i in range(4)
-  ]
   sites: Dict[int, ResourceHolder] = {}
   for i, module in modules.items():
-    module.location = locations[i]
+    # centred on the slot's centre, whatever the module's footprint
+    module.location = Coordinate(
+      78.75 - module.get_size_x() / 2, 58.05 + 120.0 * i - module.get_size_y() / 2, 8.0
+    )
     sites[i] = module
 
   return MFXCarrier(

@@ -1,0 +1,34 @@
+{
+ "model": "hamilton_hhs_nest_flat_dwp",
+ "units": "m",
+ "up": "Z",
+ "sources": {
+  "HHS_FlatDWP.x": "168b9c857a4f255687ea4181c09a7d6fcca3bc457d580760cd3219bd2e46c1b6"
+ },
+ "source_dir": "C:\\Users\\stefa\\plr-viz3d-scratch\\hamilton_library\\tools\\mfx_extracted",
+ "transform_mm": {
+  "axes": "source (x, y-up, z) -> (x, z, y), winding reversed",
+  "translation": [
+   73.56,
+   52.36,
+   -62.9
+  ]
+ },
+ "bounds_mm": [
+  [
+   2.31,
+   5.36,
+   0.0
+  ],
+  [
+   144.36,
+   99.36,
+   13.0
+  ]
+ ],
+ "triangles_by_finish": {
+  "dark_anodized": 40,
+  "satin_aluminum": 10
+ },
+ "notes": "Geometry as authored by Hamilton, split by source mesh; normals from the source. Finishes are visual estimates."
+}
