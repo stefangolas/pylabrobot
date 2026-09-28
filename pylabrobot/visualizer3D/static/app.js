@@ -223,6 +223,13 @@ function atBoundary(surface) {
     const index = world?.indexOfName.get(name);
     return index === undefined ? null : (stateOf.get(index) ?? null);
   },
+  // A joint's value as drawn right now, in the units the resource publishes it in: what a test
+  // watches while a joint glides to a new value.
+  jointOf: (name, key) => {
+    const index = world?.indexOfName.get(name);
+    const root = meshRoots.find((r) => r.userData.index === index);
+    return root?.userData.joints?.get(key)?.current ?? null;
+  },
   // What the pointer at a point of the page would be over, by name.
   pickAt: (clientX, clientY) => {
     const hit = world ? pick({ clientX, clientY }) : null;

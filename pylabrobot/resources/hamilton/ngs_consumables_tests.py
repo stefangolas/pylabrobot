@@ -25,11 +25,11 @@ def centre_xy(resource, relative_to):
 
 
 class ComfortLidTests(unittest.TestCase):
-  def test_the_lid_adds_its_stacking_height_to_a_plate(self):
+  def test_the_lid_sits_where_hamiltons_odtc_template_puts_it(self):
     plate = biorad_96_wellplate_200uL_Vb("plate")
     lid = hamilton_pcr_comfort_lid("lid")
     plate.assign_child_resource(lid)
-    self.assertAlmostEqual(lid.get_location_wrt(plate).z + lid.get_size_z(), 16.06 + 6.7)
+    self.assertAlmostEqual(lid.get_location_wrt(plate).z, 12.0)  # Hamilton's ODTC lid site
 
 
 class TubeAdapterTests(unittest.TestCase):

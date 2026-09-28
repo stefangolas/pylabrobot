@@ -1,0 +1,46 @@
+{
+ "model": "inheco_odtc",
+ "derived_from": {
+  "path": "dist/inheco/odtc-motion/inheco_odtc_motion_prototype.glb",
+  "sha256": "450b0c746ea8f4c012e6921766ea7716469f798ec6663843d998fa558ca038c0"
+ },
+ "sha256": "4422093da2835186e8390801f02ee8425dc013e7b41061045b4f80e03d36befd",
+ "units": "m",
+ "up": "Z",
+ "frame": "as the prototype: underside corner origin, +X across, +Y to the rear",
+ "edit": {
+  "script": "96channelhead/fix_odtc_block.py",
+  "mesh": "body_source_0_0 only; every other accessor, node and animation byte-identical",
+  "why": "Hamilton's block is cosmetic (holes 8.2 deep, top Z 103.4); at Hamilton's validated plate seat a Bio-Rad HSP9601 sank 7.5 mm into it",
+  "block": {
+   "top_z_mm": 101.9,
+   "hole_floor_z_mm": 87.5,
+   "grid": "12 x 8 at 9.0 mm, A1 (28.5, 92.89) mm = Hamilton's grid centre",
+   "outline_mm": [
+    21.97,
+    134.03,
+    23.36,
+    99.48
+   ],
+   "hole": "cone = HSP9601 well outer wall + 0.3 mm clearance (Bio-Rad bulletin 5496; 0.18 mm walls)",
+   "sides": "solid walls from the hole floors to the top replace Hamilton's open sleeve-by-sleeve sides; the four half-cylinder locating bosses kept"
+  },
+  "references": {
+   "plate_seat_z_mm": 86.5,
+   "plate_seat_basis": "Hamilton MFX_CAR_ODTC_MTP.tml site 1_ODTC Z 94.5 less the 7T carrier's 8 mm plate",
+   "hsp": "Bio-Rad bulletin 5496: height 16.06, rim 0.58 above deck, well depth 14.81, wells 5.46 -> 2.64"
+  },
+  "estimate": "Inheco does not publish its block; the new block is fitted to the HSP at Hamilton's seat"
+ },
+ "validation": {
+  "other_accessors_identical": true,
+  "animations": [
+   "close_cover",
+   "open_cover"
+  ],
+  "nodes_identical": true,
+  "mesh0_normals_unit": true,
+  "hsp_vertices_over_block": 30720,
+  "hsp_vertices_clipping": 0
+ }
+}

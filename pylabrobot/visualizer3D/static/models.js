@@ -20,6 +20,7 @@ import {
   stateOf,
   travels,
 } from "./drawn.js";
+import { whileMoving } from "./frame.js";
 import { view } from "./renderer.js";
 import { modelOf, world } from "./world.js";
 
@@ -63,7 +64,9 @@ const AXIS_VECTOR = {
 //
 // A revolute joint turns about its declared axis, a prismatic one slides along it. Both are applied
 // as a displacement from the rest transform the file was authored in, so a value of zero puts the
-// arm back exactly where the file drew it.
+// arm back exactly where the file drew it. A joint that declares a `speed` (mm/s, or degrees/s for
+// a revolute one) glides to a new value at that speed; one that does not, and every joint's first
+// value, is set at once.
 export function applyJoints(index) {
   const root = meshRoots.find((r) => r.userData.index === index);
   if (!root) return;
@@ -73,19 +76,46 @@ export function applyJoints(index) {
   for (const [key, joint] of root.userData.joints) {
     const value = published[key];
     if (value === undefined || value === null) continue;
-    const axis = AXIS_VECTOR[joint.spec.axis ?? "z"];
-    if (!axis) continue;
-
-    if (joint.spec.type === "prismatic") {
-      // Published in millimetres; the node lives in the file's own units.
-      const travel = value / (root.userData.scale || 1);
-      joint.node.position.copy(joint.restPosition).addScaledVector(axis, travel);
-    } else {
-      const turn = new THREE.Quaternion().setFromAxisAngle(axis, value * DEG);
-      joint.node.quaternion.copy(joint.restQuaternion).multiply(turn);
+    if (!AXIS_VECTOR[joint.spec.axis ?? "z"]) continue;
+    joint.scale = root.userData.scale || 1;
+    if (joint.spec.speed > 0 && joint.current !== undefined && joint.current !== value) {
+      joint.target = value;
+      gliding.add(joint);
+      continue;
     }
+    gliding.delete(joint);
+    joint.current = value;
+    poseJoint(joint);
   }
 }
+
+function poseJoint(joint) {
+  const axis = AXIS_VECTOR[joint.spec.axis ?? "z"];
+  if (joint.spec.type === "prismatic") {
+    // Published in millimetres; the node lives in the file's own units.
+    joint.node.position.copy(joint.restPosition).addScaledVector(axis, joint.current / joint.scale);
+  } else {
+    const turn = new THREE.Quaternion().setFromAxisAngle(axis, joint.current * DEG);
+    joint.node.quaternion.copy(joint.restQuaternion).multiply(turn);
+  }
+}
+
+// Joints on their way to a new value, advanced every frame until they arrive.
+const gliding = new Set();
+whileMoving((seconds) => {
+  for (const joint of gliding) {
+    const step = joint.spec.speed * seconds;
+    const left = joint.target - joint.current;
+    if (Math.abs(left) <= step) {
+      joint.current = joint.target;
+      gliding.delete(joint);
+    } else {
+      joint.current += Math.sign(left) * step;
+    }
+    poseJoint(joint);
+  }
+  return gliding.size > 0;
+});
 
 // Put a model that is already on screen where the new scene says it is. Its geometry, its
 // materials and its joints are the same objects; what changed is which instance it belongs to and
@@ -293,8 +323,10 @@ export function buildDeclaredMeshes() {
       // in a layer of its own while it is being carried, and instances of one model share a
       // material, so a tip on a channel cannot be told from a tip in a rack through one. There
       // are never many of them - a head has eight channels, not ninety-six.
-      const riding = instances.filter((index) => travels(index));
-      const standing = instances.filter((index) => !travels(index));
+      // A model with joints needs nodes of its own to move, so it is never instanced either.
+      const jointed = Object.keys(declared.joints ?? {}).length > 0;
+      const riding = instances.filter((index) => jointed || travels(index));
+      const standing = instances.filter((index) => !jointed && !travels(index));
       if (standing.length > 0) {
         const key = instancedKey(modelIndex, standing);
         const built =

@@ -1,5 +1,5 @@
 import warnings
-from typing import Dict
+from typing import Dict, Optional
 
 from pylabrobot.resources.carrier import (
   Coordinate,
@@ -7,6 +7,7 @@ from pylabrobot.resources.carrier import (
   ResourceHolder,
 )
 from pylabrobot.resources.hamilton.mfx_modules import (
+  hamilton_mfx_odtc_lid_park,
   hamilton_mfx_plateholder_DWP_HP_tabbed,
   hamilton_mfx_plateholder_MIDI_HP_tabbed,
   hamilton_mfx_plateholder_MTP_HP_tabbed,
@@ -65,6 +66,41 @@ def hamilton_mfx_carrier_L5_2MTP_MIDI_2DWP_HP_tabbed(name: str) -> MFXCarrier:
       3: hamilton_mfx_plateholder_MTP_HP_tabbed(f"{name}_mtp_0"),
       4: hamilton_mfx_plateholder_MTP_HP_tabbed(f"{name}_mtp_1"),
     },
+  )
+
+
+def hamilton_mfx_carrier_7T_odtc(
+  name: str, odtc: Optional[ResourceHolder] = None, lid_park: bool = True
+) -> MFXCarrier:
+  """Hamilton's NGS STAR carrier 'MFX_CAR_ODTC_MTP' ("7T Carrier with ODTC and Park Position for
+  Hamilton Comfort Lid"): the MFX shaker carrier with an Inheco ODTC on its plate and, in front, a
+  park for the ODTC's ComfortLid.
+
+  `odtc` is the ODTC resource (e.g. `pylabrobot.legacy.thermocycling.inheco.inheco_odtc`); it is
+  placed so that a plate in it stands where Hamilton's template puts it (site 1_ODTC: X 15.25, Y
+  158.8, 94.5 above the carrier's bottom, 127 x 86). The lid park's lid site is 3_MFX (X 15.25,
+  Y 14.1, 107).
+  """
+  sites: Dict[int, ResourceHolder] = {}
+  if lid_park:
+    park = hamilton_mfx_odtc_lid_park(f"{name}_lid_park")
+    # centred on the template's lid site
+    park.location = Coordinate(
+      15.25 + 127.0 / 2 - park.get_size_x() / 2, 14.1 + 86.0 / 2 - park.get_size_y() / 2, 8.0
+    )
+    sites[0] = park
+  if odtc is not None:
+    # the template's 127 x 86 plate site, an SBS plate centred on it
+    plate = Coordinate(15.25 + (127.0 - 127.76) / 2, 158.8 + (86.0 - 85.48) / 2, 94.5)
+    odtc.location = plate - odtc.child_location
+    sites[1] = odtc
+  return MFXCarrier(
+    name=name,
+    size_x=157.5,
+    size_y=497.0,
+    size_z=8.0,
+    sites=sites,
+    model="MFX_CAR_7T_shaker",
   )
 
 def MFX_CAR_L4_SHAKER(name: str, modules: Dict[int, ResourceHolder]) -> MFXCarrier:

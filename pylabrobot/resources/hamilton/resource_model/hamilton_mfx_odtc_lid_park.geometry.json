@@ -1,0 +1,36 @@
+{
+ "model": "hamilton_mfx_odtc_lid_park",
+ "units": "m",
+ "up": "Z",
+ "sources": {
+  "MFX_CAR_ODTC_MTP.hxx": "01836308c0b1ed5e151dd75870d9bd1d93cb4c13d90023426473c20424e95945"
+ },
+ "source_dir": "C:\\Users\\stefa\\plr-viz3d-scratch\\hamilton_library\\tools\\mfx_extracted",
+ "transform_mm": {
+  "axes": "source (x, y-up, z) -> (x, z, y), winding reversed",
+  "translation": [
+   -11.25,
+   -8.0,
+   -8.0
+  ]
+ },
+ "bounds_mm": [
+  [
+   0.0,
+   0.0,
+   0.0
+  ],
+  [
+   134.3,
+   100.0,
+   104.0
+  ]
+ ],
+ "triangles_by_finish": {
+  "black_anodized_carrier": 928,
+  "satin_aluminum": 1054,
+  "dark_anodized": 984,
+  "machined_aluminum": 10
+ },
+ "notes": "Cut out of Hamilton's assembled ODTC carrier (triangles in front of the ODTC above the carrier plate); footprint corner at the carrier plate. Geometry as authored by Hamilton, split by source mesh; normals from the source. Finishes are visual estimates."
+}

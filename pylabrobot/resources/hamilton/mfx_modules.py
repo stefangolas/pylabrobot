@@ -161,6 +161,25 @@ def hamilton_cpac_tube_block_2mL(name: str) -> TubeRack:
     ),
   )
 
+
+def hamilton_mfx_odtc_lid_park(name: str) -> ResourceHolder:
+  """The ComfortLid park of Hamilton's ODTC carrier ('MFX_CAR_ODTC_MTP', site 3_MFX), holding a
+  `hamilton_pcr_comfort_lid` while the plate is out of the ODTC.
+
+  Hamilton models it only inside the carrier's assembly; its model here is cut out of that:
+  134.3 x 100, 104 tall. A lid stands centred on it, its bottom 99 above the module's foot (the
+  carrier template's lid site, 107 above the carrier's bottom, less the carrier's 8 mm plate).
+  """
+  return ResourceHolder(
+    name=name,
+    size_x=134.3,
+    size_y=100.0,
+    size_z=104.0,
+    child_location=Coordinate((134.3 - 127.5) / 2, (100.0 - 85.3) / 2, 107.0 - 8.0),
+    category="lid_park",
+    model=hamilton_mfx_odtc_lid_park.__name__,
+  )
+
 # -- Plate storage ---------------------------------------------------------------------------
 
 
