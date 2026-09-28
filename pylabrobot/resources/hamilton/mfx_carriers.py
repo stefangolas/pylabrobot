@@ -50,26 +50,12 @@ def MFX_CAR_L4_SHAKER(name: str, modules: Dict[int, ResourceHolder]) -> MFXCarri
   Sometimes referred to as "PLT_CAR_L4_SHAKER" by Hamilton.
   Template carrier with 4 positions for Hamilton Heater Shaker in landscape.
   Occupies 7 tracks (7T). Can be screwed onto the deck.
-  """
-  locations = [
-    Coordinate(6.0, 2, 8.0),  # not tested, interpolated Coordinate
-    Coordinate(6.0, 123, 8.0),  # not tested, interpolated Coordinate
-    Coordinate(6.0, 244.0, 8.0),  # tested using Hamilton_HC
-    Coordinate(6.0, 365.0, 8.0),  # tested using Hamilton_HS
-  ]
-  sites: Dict[int, ResourceHolder] = {}
-  for i, module in modules.items():
-    module.location = locations[i]
-    sites[i] = module
 
-  return MFXCarrier(
-    name=name,
-    size_x=157.5,
-    size_y=497.0,
-    size_z=8.0,
-    sites=sites,
-    model="PLT_CAR_L4_SHAKER",
-  )
+  The same carrier as `hamilton_mfx_carrier_7T_shaker`, whose positions (from Hamilton's data)
+  it now uses. Its earlier positions were measured in the lab at two slots (365.0 with an HHS,
+  0.7 mm from Hamilton's) and interpolated at a 121 mm pitch at the other two.
+  """
+  return hamilton_mfx_carrier_7T_shaker(name, modules)
 
 
 def hamilton_mfx_carrier_7T_shaker(name: str, modules: Dict[int, ResourceHolder]) -> MFXCarrier:
@@ -80,8 +66,8 @@ def hamilton_mfx_carrier_7T_shaker(name: str, modules: Dict[int, ResourceHolder]
   (`hamilton_heater_shaker_riser`), centred in its slot on the carrier's 8 mm plate, 120 mm
   apart. From Hamilton's data: the catalogue gives the pitch (-120 mm from position 1 at the back)
   and the site origin (15.25, 375.05); the carrier's 3D model and the Venus-assembled carriers
-  place each unit's centre at X 78.75, Y 58.05 + 120 i, on the plate at Z 8. `MFX_CAR_L4_SHAKER` is the same carrier with positions measured in the lab
-  (365.0 tested with an HHS, 0.7 mm from this) and two interpolated at a 121 mm pitch.
+  place each unit's centre at X 78.75, Y 58.05 + 120 i, on the plate at Z 8. Also available as
+  `MFX_CAR_L4_SHAKER`.
   """
   sites: Dict[int, ResourceHolder] = {}
   for i, module in modules.items():

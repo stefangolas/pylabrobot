@@ -18,7 +18,10 @@ from pylabrobot.resources.hamilton.heater_shakers import (
   hamilton_hhs_nest_pcr96_abi,
   hamilton_hhs_nest_sarstedt_1_5mm,
 )
-from pylabrobot.resources.hamilton.mfx_carriers import hamilton_mfx_carrier_7T_shaker
+from pylabrobot.resources.hamilton.mfx_carriers import (
+  MFX_CAR_L4_SHAKER,
+  hamilton_mfx_carrier_7T_shaker,
+)
 from pylabrobot.resources.resource import Resource
 
 MODEL_DIR = Path(__file__).parent / "resource_model"
@@ -114,6 +117,15 @@ class HeaterShakerOnShakerCarrierTests(unittest.TestCase):
     self.assertAlmostEqual(at.x + hhs.get_size_x() / 2, 78.75)
     self.assertAlmostEqual(at.y + hhs.get_size_y() / 2, 298.05)
     self.assertAlmostEqual(at.z, 8.0 + HHS_RISER_HEIGHT)
+
+
+  def test_mfx_car_l4_shaker_is_this_carrier(self):
+    for index in range(4):
+      with self.subTest(index=index):
+        a = MFX_CAR_L4_SHAKER("a", modules={index: hamilton_heater_shaker("hhs")})
+        b = hamilton_mfx_carrier_7T_shaker("b", modules={index: hamilton_heater_shaker("hhs")})
+        self.assertEqual(a.sites[index].location, b.sites[index].location)
+        self.assertEqual(a.model, b.model)
 
 
 class ModelTests(unittest.TestCase):
