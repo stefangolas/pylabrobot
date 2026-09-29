@@ -49,8 +49,18 @@ const inside = (p, box, pad) =>
 
 const volume = (box) => (box.max.x - box.min.x) * (box.max.y - box.min.y) * (box.max.z - box.min.z);
 
+// How far a point lies outside a box, in mm: 0 inside it.
+const outside = (p, box) =>
+  Math.hypot(
+    Math.max(box.min.x - p.x, 0, p.x - box.max.x),
+    Math.max(box.min.y - p.y, 0, p.y - box.max.y),
+    Math.max(box.min.z - p.z, 0, p.z - box.max.z),
+  );
+
 /**
- * The labware at the point the jaws close on: the smallest movable thing whose box holds it.
+ * The labware at the point the jaws close on: of the movable things whose box holds it (within
+ * `REACH`), the one it is least outside of, then the smallest. A lid nested on another lid is
+ * gripped in its own box and within reach of the one below; the one it is in is the one taken.
  *
  * @param {{x: number, y: number, z: number}} point in world mm
  * @param {Candidate[]} candidates
@@ -58,12 +68,12 @@ const volume = (box) => (box.max.x - box.min.x) * (box.max.y - box.min.y) * (box
  */
 export function heldAt(point, candidates) {
   let best;
-  let smallest = Number.POSITIVE_INFINITY;
+  let rank = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
   for (const c of candidates) {
     if (!MOVABLE.has(c.category) || !inside(point, c.box, REACH)) continue;
-    const v = volume(c.box);
-    if (v < smallest) {
-      smallest = v;
+    const r = [outside(point, c.box), volume(c.box)];
+    if (r[0] < rank[0] - 1e-9 || (Math.abs(r[0] - rank[0]) <= 1e-9 && r[1] < rank[1])) {
+      rank = r;
       best = c.index;
     }
   }

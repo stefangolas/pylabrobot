@@ -431,6 +431,19 @@ const plateOn = (index, covered = false) => ({
 const lidAt = (z) => box(0, 0, z, 128, 85, z + 8.9);
 const LID = { index: 7, category: "lid", nesting: 7.6 };
 
+test("the jaws take the top lid of a nested stack, not the one under it", () => {
+  // Hamilton's ComfortLid: 8.5 tall, 6.7 apart in a stack. Gripped 5 below its top, the point is
+  // in the top lid and 1.7 above the one under it: within reach of both.
+  const stack = [0, 1, 2, 3, 4].map((i) => ({
+    index: 10 + i,
+    category: "lid",
+    box: box(0, 0, 200 + 6.7 * i, 127.5, 85.3, 208.5 + 6.7 * i),
+  }));
+  const top = 200 + 6.7 * 4 + 8.5;
+  assert.equal(heldAt({ x: 64, y: 43, z: top - 5 }, stack), 14);
+  assert.equal(heldAt({ x: 64, y: 43, z: top - 5 }, [...stack].reverse()), 14);
+});
+
 test("the jaws take the lid at its height, and the plate below it", () => {
   const candidates = [plateOn(2), { index: 7, category: "lid", box: lidAt(103.6) }];
   assert.equal(heldAt({ x: 64, y: 43, z: 109 }, candidates), 7);
