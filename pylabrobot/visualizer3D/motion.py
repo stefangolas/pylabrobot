@@ -890,16 +890,21 @@ class _HeadFrames:
     }
 
 
-def _rack_at(deck: Any, x: float, y: float) -> Optional[Any]:
-  """The tip rack whose spot A1 is centred at (x, y), or None."""
+def _spots_under_head(deck: Any, head: Any, x: float, y: float) -> List[Optional[Any]]:
+  """Per shaft, the tip spot it stands over with head channel A1 at (x, y): the rack of whichever
+  spot is there, paired with the shafts as the head pairs them for an offset command
+  (`Head96._spots_under_shafts`). All None over no rack."""
   for resource in deck.get_all_children():
     if isinstance(resource, TipSpot) and resource.parent is not None:
       centre = resource.get_location_wrt(deck, "c", "c", "b")
       if abs(centre.x - x) <= SPOT_TOLERANCE and abs(centre.y - y) <= SPOT_TOLERANCE:
         rack = resource.parent
-        if rack.get_item("A1") is resource:
-          return rack
-  return None
+        if rack.num_items != 96:
+          break
+        a1 = rack.get_item("A1").get_location_wrt(deck, "c", "c", "b")
+        under = head._spots_under_shafts(Coordinate(x - a1.x, y - a1.y, 0))
+        return [None if j is None else rack.get_item(j) for j in under]
+  return [None] * 96
 
 
 def _head96_tips(driver: Any, head: Any, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -922,22 +927,24 @@ def _head96_tips(driver: Any, head: Any, command: str, params: Dict[str, Any]) -
       "x": round(float(arm.resource.location.x + x - a1.x), 2),
     }
 
-  rack = _rack_at(driver.deck, x, y)
+  # Each shaft works the spot under it, whichever spot of the rack channel A1 stands over: a head
+  # sent over a rack shifted by whole columns (a partial pick-up off a tip support) pairs them
+  # shifted.
+  under = _spots_under_head(driver.deck, head, x, y)
   shafts = frames.resource.get_all_items()
   after = 0.0
   if pick_up:
-    if rack is not None:
-      for shaft, spot in zip(shafts, rack.get_all_items()):
-        if spot.tip is not None:
-          mounted = _mounted_location(shaft, spot.tip)
-          request["attach"].append(_handover(spot.tip, shaft, mounted))
-          if shaft is frames.a1:
-            after = -mounted["z"]
+    for shaft, spot in zip(shafts, under):
+      if spot is not None and spot.tip is not None:
+        mounted = _mounted_location(shaft, spot.tip)
+        request["attach"].append(_handover(spot.tip, shaft, mounted))
+        if after == 0.0:
+          after = -mounted["z"]
   else:
     for i, shaft in enumerate(shafts):
       if shaft.tip is None:
         continue
-      spot = rack.get_item(i) if rack is not None else None
+      spot = under[i]
       if spot is not None and spot.tracks_tips and spot.tip is None:
         request["attach"].append(
           _handover(shaft.tip, spot, _xyz(resting_location(spot, shaft.tip)))
@@ -959,6 +966,38 @@ def _head96_tips(driver: Any, head: Any, command: str, params: Dict[str, Any]) -
       "end": frames.local_z(_tenths(params["ze"]) + after),
     }
   ]
+  return request
+
+
+def _head96_liquid(driver: Any, head: Any, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
+  """`C0 EA` or `C0 ED`: the head's stroke, channel A1 over well A1 (or centred over a container):
+  up to traverse height, across, down with the tips to the liquid surface the command gives, and
+  up to where it ends. The liquid itself is the model's, booked by the command."""
+  frames = _HeadFrames(driver, head)
+  aspirate = command == "EA"
+  request = frames.request("head96_aspirate" if aspirate else "head96_dispense", "C0" + command)
+  x = _tenths(params["xs"]) * (-1 if int(params["xd"]) else 1)
+  y = _tenths(params["yh"])
+  arm = head.arm
+  if arm is not None and arm.resource is not None:
+    a1 = frames.a1.get_location_wrt(driver.deck)
+    request["arm"] = {
+      "name": arm.resource.name,
+      "x": round(float(arm.resource.location.x + x - a1.x), 2),
+    }
+  overhang = frames.overhang()
+  name = frames.resource.name
+  request["traverse"] = [{"name": name, "z": frames.local_z(_tenths(params["zh"]) + overhang)}]
+  request["channels"] = [
+    {
+      "name": name,
+      "channel": 0,
+      "y": frames.local_y(y),
+      "down": frames.local_z(_tenths(params["zt"]) + overhang),
+      "end": frames.local_z(_tenths(params["ze"]) + overhang),
+    }
+  ]
+  request["dwell"] = _tenths(params["wh"])
   return request
 
 
@@ -1029,6 +1068,8 @@ _FIXED = {
   "C0ZA": CHANNELS_UP_FIXED,
   "C0EP": HEAD96_TIP_PICKUP_FIXED,
   "C0ER": HEAD96_TIP_DROP_FIXED,
+  "C0EA": ASPIRATE_FIXED,
+  "C0ED": ASPIRATE_FIXED,
   "H0YA": HEAD96_MOVE_FIXED,
   "H0ZA": HEAD96_MOVE_FIXED,
 }
@@ -1045,6 +1086,8 @@ def _decode(
     head = _head96_of(driver)
     if head is not None and key in ("C0EP", "C0ER"):
       return _head96_tips(driver, head, command, params)
+    if head is not None and key in ("C0EA", "C0ED"):
+      return _head96_liquid(driver, head, command, params)
     if head is not None and module == head.configuration.module and command in ("YA", "ZA"):
       return _head96_move(driver, head, command, params)
     arm = _pipetting_arm(driver)

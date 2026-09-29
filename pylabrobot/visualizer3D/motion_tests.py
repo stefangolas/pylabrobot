@@ -398,6 +398,49 @@ class ISWAPDecoderTests(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(jaws["gripper"], self.iswap.gripper.name)
 
 
+class Head96OffsetAndLiquidDecoderTests(unittest.IsolatedAsyncioTestCase):
+  """The 96-head's commands, read for what they move and which tips change hands."""
+
+  async def asyncSetUp(self) -> None:
+    self.facility, self.star = await simulated_star(self)
+    self.head = self.star.head96
+    self.rack = self.star.deck.get_resource("tips_1")
+    self.requests: List[Dict[str, Any]] = []
+
+    async def listen(module: str, command: str, params: Dict[str, Any]) -> None:
+      request = star_motion(self.star.driver, module, command, params)
+      if request is not None:
+        self.requests.append(request)
+
+    self.star.driver.motion_listener = listen
+
+  async def test_an_offset_pick_up_hands_each_shaft_the_tip_under_it(self):
+    """Channel A1 over spot A5: the first eight columns of shafts take the tips of columns 5-12."""
+    from pylabrobot.resources.coordinate import Coordinate
+
+    spots = self.rack.get_all_items()
+    await self.head.pick_up_tips(self.rack, offset=Coordinate(4 * 9.0, 0, 0))
+    request = [r for r in self.requests if r["kind"] == "head96_tip_pickup"][-1]
+    shafts = self.head.resource.get_all_items()
+    handed = {h["name"]: h["parent"] for h in request["attach"]}
+    self.assertEqual(len(handed), 64)
+    for shaft in range(64):
+      column, row = divmod(shaft, 8)
+      with self.subTest(shaft=shaft):
+        self.assertEqual(handed[shafts[shaft].tip.name], shafts[shaft].name)
+        self.assertIsNone(spots[(column + 4) * 8 + row].tip)
+
+  async def test_an_aspiration_goes_down_to_the_liquid_surface(self):
+    await self.head.pick_up_tips(self.rack)
+    plate = self.star.deck.get_resource("source_1")
+    fill(plate, 200.0)
+    await self.head.aspirate(plate, 50.0, liquid_height=2.0)
+    request = [r for r in self.requests if r["kind"] == "head96_aspirate"][-1]
+    self.assertEqual(request["command"], "C0EA")
+    channel = request["channels"][0]
+    self.assertLess(channel["down"], channel["end"])
+
+
 class ISWAPServerTests(unittest.IsolatedAsyncioTestCase):
   async def test_a_move_the_model_records_first_is_played_before_it_is_told(self):
     """The iSWAP writes a move's target before sending it. Told first, the page would put the head
