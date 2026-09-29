@@ -36,6 +36,10 @@ is converted to the stop disc, with the overhang the channel has when the move i
 
 from typing import Any, Dict, List, Optional, Sequence
 
+from pylabrobot.hamilton.star.driver.features.pipettes import (
+  core_tool_face_distance,
+  core_tool_grip_line_overhang,
+)
 from pylabrobot.resources.coordinate import Coordinate
 from pylabrobot.resources.hamilton.core_grippers import HamiltonCoreGripperTool
 from pylabrobot.resources.tip_rack import TipSpot, resting_location
@@ -87,7 +91,9 @@ MIX_PER_CYCLE = 0.557  # s
 TIP_PICKUP_FIXED = 4.421  # s: the tip clamped and checked, beyond the drawn motion
 # Held at the bottom, the tip on the shaft, all but a simple command's handling (as a drop's, HEUR).
 TIP_PICKUP_HOLD = TIP_PICKUP_FIXED - 0.065  # s
-TIP_DROP_FIXED = 5.009  # s, the mean. The channel count adds 0.21 s each (R^2 0.15), but 7 against 8
+TIP_DROP_FIXED = (
+  5.009  # s, the mean. The channel count adds 0.21 s each (R^2 0.15), but 7 against 8
+)
 # channels is also one protocol against the others, so it is left out.
 # Where in a drop that time goes is not in the traces, which time whole commands. It is played at
 # the bottom, as the hold while the tips are pushed off (HEUR, from watching the device), all but a
@@ -476,6 +482,46 @@ def _core_tool_return(frames: _Frames, command: str, params: Dict[str, Any]) -> 
     handover = _handover(shaft.tip, holder, _xyz(location))
     handover["rotation"] = _xyz(rotation)
     request["attach"].append(handover)
+  return request
+
+
+def _core_plate(frames: _Frames, command: str, params: Dict[str, Any], kind: str) -> Dict[str, Any]:
+  """`C0 ZP`, `ZM`, `ZR`: the two tool channels travel, go down to the grip line at the plate's
+  centre, one on each side of it, and come up. At the bottom of a grip the plate passes to the
+  front tool channel's shaft; at the bottom of a release, to what it is put down on - as
+  `COREGripper` leaves it for the command (`Pipettes._core_handover`)."""
+  channels = frames.pipettes.get_core_gripper_channels()
+  if len(channels) != 2:
+    raise ValueError("a CO-RE plate command needs two channels carrying tools")
+  back, front = channels
+  tool = frames.shaft(front).tip
+  handover = getattr(frames.pipettes, "_core_handover", None)
+  held = handover[0] if handover else None
+  width = held.get_absolute_size_y() if held is not None else _tenths(params.get("yo", 0)) - 3.0
+  half = width / 2 + core_tool_face_distance(tool)
+  centre_y, grip = _tenths(params["yj"]), _tenths(params["zj"])
+  along = {**params, "ya": round((centre_y + half) * 10), "yb": round((centre_y - half) * 10)}
+  end = _tenths(params["zj"] if kind == "core_move" else params.get("te", params["th"]))
+  below = core_tool_grip_line_overhang(tool)
+  request = _stroke(
+    frames,
+    kind,
+    command,
+    _as_tip_command(along, back, len(frames.channels)),
+    traverse=_tenths(params["th"]),
+    down={c: frames.lowest_point_z(c, grip, below) for c in channels},
+    end={c: frames.lowest_point_z(c, end, below) for c in channels},
+  )
+  if handover and kind != "core_move":
+    resource, parent, location = handover
+    request["attach"].append(
+      {
+        "name": resource.name,
+        "parent": None if parent is None else parent.name,
+        "location": None if location is None else _xyz(location),
+        "rotation": _xyz(resource.rotation),
+      }
+    )
   return request
 
 
@@ -978,6 +1024,8 @@ def star_motion(
 _FIXED = {
   "C0ZT": CORE_TOOL_PICKUP_FIXED,
   "C0ZS": CORE_TOOL_RETURN_FIXED,
+  "C0ZP": CORE_TOOL_PICKUP_FIXED,
+  "C0ZR": CORE_TOOL_RETURN_FIXED,
   "C0ZA": CHANNELS_UP_FIXED,
   "C0EP": HEAD96_TIP_PICKUP_FIXED,
   "C0ER": HEAD96_TIP_DROP_FIXED,
@@ -1011,6 +1059,12 @@ def _decode(
       return _core_tool_pickup(frames, key, params)
     if key == "C0ZS":
       return _core_tool_return(frames, key, params)
+    if key == "C0ZP":
+      return _core_plate(frames, key, params, "core_grip")
+    if key == "C0ZM":
+      return _core_plate(frames, key, params, "core_move")
+    if key == "C0ZR":
+      return _core_plate(frames, key, params, "core_release")
     if key == "C0AS":
       return _aspirate(frames, key, params)
     if key == "C0JY":
