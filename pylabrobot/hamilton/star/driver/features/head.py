@@ -950,6 +950,29 @@ class Head:
     if not low <= value <= high:
       raise ValueError(f"{axis} must be between {low} and {high}, is {value}")
 
+  def _check_tool_bottom_reachable(self, z: float, overhang: float) -> None:
+    """Raise if the bottom of what the head carries, `overhang` below its reference point, cannot
+    be put at `z`.
+
+    The Z drive works in stop-disc terms over `z_range`, so what the tip bottom reaches is that
+    window shifted down by the overhang, and no lower than the head may put one. Part of the gate
+    (`_check_reachable`): every height given for the tips' bottom passes here.
+
+    Args:
+      z: where the tip bottom would be sent, in mm on the deck.
+      overhang: how far the tips stand below the head's reference point, in mm.
+
+    Raises:
+      ValueError: If it cannot be put there.
+    """
+    c = self.configuration
+    low = round(max(c.z_range[0] - overhang, c.min_tool_bottom_z), 2)
+    high = round(c.z_range[1] - overhang, 2)
+    if not low <= z <= high:
+      raise ValueError(
+        f"the tool bottom reaches {low} to {high} mm with a {overhang} mm overhang, not {z}"
+      )
+
   def _check_move(
     self,
     axis: Literal["y", "z"],
@@ -1245,22 +1268,13 @@ class Head:
     Raises:
       ValueError: If the head carries no tips, or it cannot put their bottom at `z`.
     """
-    c = self.configuration
     if not await self.request_tip_presence():
       raise ValueError(
         "the head carries no tips, so it has no tool bottom to place; "
         "`move_stop_disc_to_z_position` is the move for a head with nothing on it"
       )
     overhang = await self._overhang_that_probes()
-
-    # The drive works in stop-disc terms over `z_range`, so what the tip bottom reaches is that
-    # window shifted down by the overhang, and no lower than the head may put one.
-    low = round(max(c.z_range[0] - overhang, c.min_tool_bottom_z), 2)
-    high = round(c.z_range[1] - overhang, 2)
-    if not low <= z <= high:
-      raise ValueError(
-        f"the tool bottom reaches {low} to {high} mm with a {overhang} mm overhang, not {z}"
-      )
+    self._check_tool_bottom_reachable(z, overhang)
 
     return await self.move_stop_disc_to_z_position(
       z + overhang,

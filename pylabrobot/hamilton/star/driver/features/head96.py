@@ -5,10 +5,14 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union, cast
 
+from pylabrobot.hamilton.liquid_classes import HamiltonLiquidClass
 from pylabrobot.hamilton.star.driver.errors import STARFirmwareError
 from pylabrobot.hamilton.star.driver.features.head import Head, HeadConfiguration
+from pylabrobot.hamilton.star.liquid_classes import get_star_liquid_class
 from pylabrobot.lib.liquid_handling.mix import Mix
 from pylabrobot.resources.container import Container
+from pylabrobot.resources.liquid import Liquid
+from pylabrobot.resources.volume_tracker import does_volume_tracking
 from pylabrobot.resources.coordinate import Coordinate
 from pylabrobot.resources.hamilton.tip_creators import HamiltonTip
 from pylabrobot.resources.plate import Plate
@@ -1142,3 +1146,402 @@ class Head96(Head):
       await self.move_to_safe_z()
     else:
       await self.move_tool_bottom_to_z_position(minimum_traverse_height_end, speed=descent_speed)
+
+  # -- aspirate and dispense at a plate or a container (C0 EA / ED) -------------------------------
+  # As legacy's `aspirate96` / `dispense96`, whose commands these send: the head goes to a plate
+  # with channel A1 over well A1, or is centred over a single container (a reservoir), and every
+  # channel carrying a tip moves the volume. Every position and height passes the head's gate
+  # before anything is sent; the volumes are booked from container to tip (or back) and undone if
+  # the command fails.
+
+  def _liquid_targets(
+    self, resource: Union[Plate, Container], offset: Optional[Coordinate]
+  ) -> Tuple[Coordinate, List[Container]]:
+    """Where head channel A1 goes, at the cavity bottom, in deck mm, and per shaft (in spot
+    order) the container it works.
+
+    Raises:
+      ValueError: If the plate is turned other than 0 or 180 degrees about Z.
+      TypeError: If the resource is neither a 96-well plate nor a container.
+    """
+    deck = self._driver.deck
+    if deck is None:
+      raise RuntimeError("containers are placed from the deck; this driver was given none")
+    offset = offset or Coordinate.zero()
+    if isinstance(resource, Plate) and resource.num_items == 96:
+      rotation = resource.get_absolute_rotation()
+      if rotation.x % 360 or rotation.y % 360:
+        raise ValueError("the 96-head works plates turned only about Z")
+      wells = cast(List[Container], resource.get_all_items())
+      if rotation.z % 360 == 0:
+        per_shaft = wells
+      elif rotation.z % 360 == 180:
+        per_shaft = list(reversed(wells))
+      else:
+        raise ValueError("the 96-head works plates turned 0 or 180 degrees about Z")
+      a1 = per_shaft[0].get_location_wrt(deck, x="c", y="c", z="cavity_bottom") + offset
+      return a1, per_shaft
+    container = resource.get_item(0) if isinstance(resource, Plate) else resource
+    if not isinstance(container, Container):
+      raise TypeError(f"{resource.name} is neither a 96-well plate nor a container")
+    c = self.configuration
+    corner = container.get_location_wrt(deck, z="cavity_bottom")
+    a1 = Coordinate(
+      corner.x + (container.get_absolute_size_x() - c.channel_array_size_x) / 2,
+      corner.y + (container.get_absolute_size_y() + c.channel_array_size_y) / 2,
+      corner.z,
+    )
+    return a1 + offset, [container] * 96
+
+  def _tipped_shafts(self) -> List[Tuple[int, Tip]]:
+    """The shafts the model has carrying tips, with their tips.
+
+    Raises:
+      RuntimeError: If none does.
+    """
+    if self.resource is None:
+      raise RuntimeError("the head is not modelled")
+    tipped = [
+      (i, shaft.tip)
+      for i, shaft in enumerate(self.resource.get_all_items())
+      if shaft.has_tip() and shaft.tip is not None
+    ]
+    if not tipped:
+      raise RuntimeError("the head carries no tips; pick some up first")
+    return tipped
+
+  @staticmethod
+  def _check_fields(fields: List[Tuple[str, float, float, float]]) -> None:
+    """Raise unless each (name, value, low, high) is inside its window, as the firmware takes it."""
+    for name, value, low, high in fields:
+      if not low <= value <= high:
+        raise ValueError(f"{name} must be between {low} and {high}, is {value}")
+
+  async def _move_liquid(
+    self,
+    command: str,
+    per_shaft: List[Container],
+    volume: float,
+    into_tips: bool,
+    send: Any,
+  ) -> None:
+    """Book `volume` per tipped shaft between its container and its tip, send, and commit; undo
+    the booking if the command fails."""
+    trackers = []
+    try:
+      if does_volume_tracking():
+        for i, tip in self._tipped_shafts():
+          giver, taker = (
+            (per_shaft[i].tracker, tip.tracker)
+            if into_tips
+            else (tip.tracker, per_shaft[i].tracker)
+          )
+          trackers += [giver, taker]
+          moved = min(volume, giver.get_used_volume())
+          if moved < volume:
+            logger.warning(
+              "%s: %s holds %.1f uL, less than the %.1f uL asked",
+              command,
+              (per_shaft[i] if into_tips else tip).name,
+              giver.get_used_volume(),
+              volume,
+            )
+          giver.remove_liquid(moved)
+          taker.add_liquid(moved)
+      await send()
+    except BaseException:
+      for tracker in trackers:
+        tracker.rollback()
+      raise
+    for tracker in trackers:
+      tracker.commit()
+
+  def _liquid_class(
+    self, tip: Tip, jet: bool, blow_out: bool, given: Optional[HamiltonLiquidClass]
+  ) -> Optional[HamiltonLiquidClass]:
+    return given or get_star_liquid_class(
+      tip_volume=tip.maximal_volume,
+      is_core=True,
+      is_tip=True,
+      has_filter=tip.has_filter,
+      liquid=Liquid.WATER,
+      jet=jet,
+      blow_out=blow_out,
+    )
+
+  async def _unchecked_fw_aspirate_core_96(self, **fields: Any):
+    """Send the aspiration as it is given, fields already in firmware units. `C0 EA`."""
+    return await self._driver.send_command(
+      module="C0", command="EA", subsystem=self.configuration.module, read_timeout=300, **fields
+    )
+
+  async def _unchecked_fw_dispense_core_96(self, **fields: Any):
+    """Send the dispense as it is given, fields already in firmware units. `C0 ED`."""
+    return await self._driver.send_command(
+      module="C0", command="ED", subsystem=self.configuration.module, read_timeout=300, **fields
+    )
+
+  async def aspirate(
+    self,
+    resource: Union[Plate, Container],
+    volume: float,
+    offset: Optional[Coordinate] = None,
+    liquid_height: Optional[float] = None,
+    flow_rate: Optional[float] = None,
+    mix: Optional[Mix] = None,
+    blow_out_air_volume: Optional[float] = None,
+    jet: bool = False,
+    blow_out: bool = False,
+    hamilton_liquid_class: Optional[HamiltonLiquidClass] = None,
+    disable_volume_correction: bool = False,
+    use_lld: bool = False,
+    lld_search_height: float = 199.9,
+    minimum_height: Optional[float] = None,
+    pull_out_distance_transport_air: float = 10.0,
+    second_section_height: float = 3.2,
+    second_section_ratio: float = 618.0,
+    immersion_depth: float = 0.0,
+    surface_following_distance: float = 0.0,
+    transport_air_volume: float = 5.0,
+    pre_wetting_volume: float = 5.0,
+    gamma_lld_sensitivity: int = 1,
+    swap_speed: float = 2.0,
+    settling_time: float = 1.0,
+    mix_position_from_liquid_surface: float = 0.0,
+    mix_surface_following_distance: float = 0.0,
+    limit_curve_index: int = 0,
+    aspiration_type: int = 0,
+    minimum_traverse_height_start: Optional[float] = None,
+    minimum_height_command_end: Optional[float] = None,
+  ) -> None:
+    """Aspirate `volume` into every tip the head carries, from a 96-well plate (channel A1 over
+    well A1) or a single container (the head centred over it), as legacy's `aspirate96`. `C0 EA`.
+
+    Heights are in mm on the deck; `liquid_height` and the defaults are above the cavity bottom.
+    Values left as given fall back to the liquid class (looked up for the tips, water, `jet` and
+    `blow_out`) as legacy's do.
+
+    Raises:
+      RuntimeError: If the head carries no tips, the iSWAP is not parked, or there is no deck.
+      ValueError: If a position or height cannot be reached, or a field is out of range.
+    """
+    a1, per_shaft = self._liquid_targets(resource, offset)
+    tipped = self._tipped_shafts()
+    hlc = self._liquid_class(tipped[0][1], jet, blow_out, hamilton_liquid_class)
+    corrected = (
+      volume if disable_volume_correction or hlc is None else hlc.compute_corrected_volume(volume)
+    )
+    transport_air_volume = transport_air_volume or (
+      hlc.aspiration_air_transport_volume if hlc is not None else 0
+    )
+    blow_out_air_volume = blow_out_air_volume or (
+      hlc.aspiration_blow_out_volume if hlc is not None else 0
+    )
+    flow_rate = flow_rate or (hlc.aspiration_flow_rate if hlc is not None else 250)
+    swap_speed = swap_speed or (hlc.aspiration_swap_speed if hlc is not None else 100)
+    settling_time = settling_time or (hlc.aspiration_settling_time if hlc is not None else 0.5)
+    surface = a1.z + (liquid_height or 0)
+    floor = minimum_height if minimum_height is not None else a1.z
+    traverse, end = self._resolve_tip_command_heights(
+      minimum_traverse_height_start, minimum_height_command_end
+    )
+
+    self._check_tip_command(a1, traverse, end, skip_z=True)
+    overhang = await self.request_tip_overhang()
+    for z in (surface, floor, lld_search_height):
+      self._check_tool_bottom_reachable(z, overhang)
+    t = lambda v: round(v * 10)  # noqa: E731
+    self._check_fields(
+      [
+        ("volume, in 0.1 uL", t(corrected), 0, 11500),
+        ("flow_rate, in 0.1 uL/s", t(flow_rate), 3, 5000),
+        ("transport_air_volume, in 0.1 uL", t(transport_air_volume), 0, 500),
+        ("blow_out_air_volume, in 0.1 uL", t(blow_out_air_volume), 0, 11500),
+        ("pre_wetting_volume, in 0.1 uL", t(pre_wetting_volume), 0, 11500),
+        ("swap_speed, in 0.1 mm/s", t(swap_speed), 3, 1000),
+        ("settling_time, in 0.1 s", t(settling_time), 0, 99),
+        ("surface_following_distance, in 0.1 mm", t(surface_following_distance), 0, 990),
+        ("immersion_depth, in 0.1 mm", t(abs(immersion_depth)), 0, 3600),
+        ("gamma_lld_sensitivity", gamma_lld_sensitivity, 1, 4),
+        ("limit_curve_index", limit_curve_index, 0, 999),
+        ("aspiration_type", aspiration_type, 0, 2),
+      ]
+    )
+    await self._require_iswap_parked()
+
+    async def send() -> None:
+      await self._unchecked_fw_aspirate_core_96(
+        aa=aspiration_type,
+        xs=f"{abs(t(a1.x)):05}",
+        xd=0 if a1.x >= 0 else 1,
+        yh=f"{t(a1.y):04}",
+        zh=f"{t(traverse):04}",
+        ze=f"{t(end):04}",
+        lz=f"{t(lld_search_height):04}",
+        zt=f"{t(surface):04}",
+        pp=f"{t(pull_out_distance_transport_air):04}",
+        zm=f"{t(floor):04}",
+        zv=f"{t(second_section_height):04}",
+        zq=f"{t(second_section_ratio):05}",
+        iw=f"{t(abs(immersion_depth)):03}",
+        ix=0 if immersion_depth >= 0 else 1,
+        fh=f"{t(surface_following_distance):03}",
+        af=f"{t(corrected):05}",
+        ag=f"{t(flow_rate):04}",
+        vt=f"{t(transport_air_volume):03}",
+        bv=f"{t(blow_out_air_volume):05}",
+        wv=f"{t(pre_wetting_volume):05}",
+        cm=int(use_lld),
+        cs=gamma_lld_sensitivity,
+        bs=f"{t(swap_speed):04}",
+        wh=f"{t(settling_time):02}",
+        hv=f"{t(mix.volume) if mix is not None else 0:05}",
+        hc=f"{mix.repetitions if mix is not None else 0:02}",
+        hp=f"{t(mix_position_from_liquid_surface):03}",
+        mj=f"{t(mix_surface_following_distance):03}",
+        hs=f"{t(mix.flow_rate) if mix is not None and mix.flow_rate else 1200:04}",
+        cw="F" * 24,
+        cr=f"{limit_curve_index:03}",
+        cj=0,
+        cx=0,
+      )
+
+    try:
+      await self._move_liquid("aspirate", per_shaft, volume, into_tips=True, send=send)
+    finally:
+      await self._record_after_tip_command()
+
+  async def dispense(
+    self,
+    resource: Union[Plate, Container],
+    volume: float,
+    offset: Optional[Coordinate] = None,
+    liquid_height: Optional[float] = None,
+    flow_rate: Optional[float] = None,
+    mix: Optional[Mix] = None,
+    blow_out_air_volume: Optional[float] = None,
+    jet: bool = False,
+    empty: bool = False,
+    blow_out: bool = False,
+    hamilton_liquid_class: Optional[HamiltonLiquidClass] = None,
+    disable_volume_correction: bool = False,
+    use_lld: bool = False,
+    lld_search_height: float = 199.9,
+    minimum_height: Optional[float] = None,
+    pull_out_distance_transport_air: float = 10.0,
+    second_section_height: float = 3.2,
+    second_section_ratio: float = 618.0,
+    immersion_depth: float = 0.0,
+    surface_following_distance: float = 0.0,
+    transport_air_volume: float = 5.0,
+    gamma_lld_sensitivity: int = 1,
+    swap_speed: float = 2.0,
+    settling_time: float = 0.0,
+    mix_position_from_liquid_surface: float = 0.0,
+    mix_surface_following_distance: float = 0.0,
+    limit_curve_index: int = 0,
+    cut_off_speed: float = 5.0,
+    stop_back_volume: float = 0.0,
+    side_touch_off_distance: float = 0.0,
+    minimum_traverse_height_start: Optional[float] = None,
+    minimum_height_command_end: Optional[float] = None,
+  ) -> None:
+    """Dispense `volume` from every tip the head carries into a 96-well plate or a single
+    container, as legacy's `dispense96`. `C0 ED`.
+
+    The mode is legacy's: `empty` empties the tips at a fixed position; otherwise `jet` or at the
+    surface, a partial volume, or a blow-out with `blow_out`. Heights and fallbacks as `aspirate`.
+
+    Raises:
+      RuntimeError: If the head carries no tips, the iSWAP is not parked, or there is no deck.
+      ValueError: If a position or height cannot be reached, or a field is out of range.
+    """
+    a1, per_shaft = self._liquid_targets(resource, offset)
+    tipped = self._tipped_shafts()
+    hlc = self._liquid_class(tipped[0][1], jet, blow_out, hamilton_liquid_class)
+    corrected = (
+      volume if disable_volume_correction or hlc is None else hlc.compute_corrected_volume(volume)
+    )
+    mode = 4 if empty else ((1 if blow_out else 0) if jet else (3 if blow_out else 2))
+    transport_air_volume = transport_air_volume or (
+      hlc.dispense_air_transport_volume if hlc is not None else 0
+    )
+    blow_out_air_volume = blow_out_air_volume or (
+      hlc.dispense_blow_out_volume if hlc is not None else 0
+    )
+    flow_rate = flow_rate or (hlc.dispense_flow_rate if hlc is not None else 120)
+    swap_speed = swap_speed or (hlc.dispense_swap_speed if hlc is not None else 100)
+    settling_time = settling_time or (hlc.dispense_settling_time if hlc is not None else 5)
+    surface = a1.z + (liquid_height or 0)
+    floor = minimum_height if minimum_height is not None else a1.z
+    traverse, end = self._resolve_tip_command_heights(
+      minimum_traverse_height_start, minimum_height_command_end
+    )
+
+    self._check_tip_command(a1, traverse, end, skip_z=True)
+    overhang = await self.request_tip_overhang()
+    for z in (surface, floor, lld_search_height):
+      self._check_tool_bottom_reachable(z, overhang)
+    t = lambda v: round(v * 10)  # noqa: E731
+    self._check_fields(
+      [
+        ("volume, in 0.1 uL", t(corrected), 0, 11500),
+        ("flow_rate, in 0.1 uL/s", t(flow_rate), 3, 5000),
+        ("cut_off_speed, in 0.1 uL/s", t(cut_off_speed), 3, 5000),
+        ("stop_back_volume, in 0.1 uL", t(stop_back_volume), 0, 999),
+        ("transport_air_volume, in 0.1 uL", t(transport_air_volume), 0, 500),
+        ("blow_out_air_volume, in 0.1 uL", t(blow_out_air_volume), 0, 11500),
+        ("side_touch_off_distance, in 0.1 mm", t(side_touch_off_distance), 0, 45),
+        ("swap_speed, in 0.1 mm/s", t(swap_speed), 3, 1000),
+        ("settling_time, in 0.1 s", t(settling_time), 0, 99),
+        ("surface_following_distance, in 0.1 mm", t(surface_following_distance), 0, 990),
+        ("immersion_depth, in 0.1 mm", t(abs(immersion_depth)), 0, 3600),
+        ("gamma_lld_sensitivity", gamma_lld_sensitivity, 1, 4),
+        ("limit_curve_index", limit_curve_index, 0, 999),
+      ]
+    )
+    await self._require_iswap_parked()
+
+    async def send() -> None:
+      await self._unchecked_fw_dispense_core_96(
+        da=mode,
+        xs=f"{abs(t(a1.x)):05}",
+        xd=0 if a1.x >= 0 else 1,
+        yh=f"{t(a1.y):04}",
+        zm=f"{t(floor):04}",
+        zv=f"{t(second_section_height):04}",
+        zq=f"{t(second_section_ratio):05}",
+        lz=f"{t(lld_search_height):04}",
+        zt=f"{t(surface):04}",
+        pp=f"{t(pull_out_distance_transport_air):04}",
+        iw=f"{t(abs(immersion_depth)):03}",
+        ix=0 if immersion_depth >= 0 else 1,
+        fh=f"{t(surface_following_distance):03}",
+        zh=f"{t(traverse):04}",
+        ze=f"{t(end):04}",
+        df=f"{t(corrected):05}",
+        dg=f"{t(flow_rate):04}",
+        es=f"{t(cut_off_speed):04}",
+        ev=f"{t(stop_back_volume):03}",
+        vt=f"{t(transport_air_volume):03}",
+        bv=f"{t(blow_out_air_volume):05}",
+        cm=int(use_lld),
+        cs=gamma_lld_sensitivity,
+        ej=f"{t(side_touch_off_distance):02}",
+        bs=f"{t(swap_speed):04}",
+        wh=f"{t(settling_time):02}",
+        hv=f"{t(mix.volume) if mix is not None else 0:05}",
+        hc=f"{mix.repetitions if mix is not None else 0:02}",
+        hp=f"{t(mix_position_from_liquid_surface):03}",
+        mj=f"{t(mix_surface_following_distance):03}",
+        hs=f"{t(mix.flow_rate) if mix is not None and mix.flow_rate else 1200:04}",
+        cw="F" * 24,
+        cr=f"{limit_curve_index:03}",
+        cj=0,
+        cx=0,
+      )
+
+    try:
+      await self._move_liquid("dispense", per_shaft, volume, into_tips=False, send=send)
+    finally:
+      await self._record_after_tip_command()

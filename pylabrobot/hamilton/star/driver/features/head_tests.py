@@ -307,6 +307,102 @@ class TestHead96Tips(unittest.IsolatedAsyncioTestCase):
     self.assertFalse(any(spot.has_tip() for spot in spots))
 
 
+class TestHead96AspirateDispense(unittest.IsolatedAsyncioTestCase):
+  """As legacy's `test_core_96_aspirate` / `test_core_96_dispense`, on the layout they use: 1000 uL
+  filter tips on a STARlet, a Corning 96 on PLT_CAR_L5AC_A00 at track 9."""
+
+  EA = (
+    "C0EAaa0xs02983xd0yh1457zh2450ze2450lz1999zt1866pp0100zm1866zv0032zq06180iw000ix0fh000"
+    "af01083ag2500vt050bv00000wv00050cm0cs1bs0020wh10hv00000hc00hp000mj000hs1200"
+    "cwFFFFFFFFFFFFFFFFFFFFFFFFcr000cj0cx0"
+  )
+  ED = (
+    "C0EDda3xs02983xd0yh1457zm1866zv0032zq06180lz1999zt1866pp0100iw000ix0fh000zh2450ze2450"
+    "df01083dg1200es0050ev000vt050bv00000cm0cs1ej00bs0020wh00hv00000hc00hp000mj000hs1200"
+    "cwFFFFFFFFFFFFFFFFFFFFFFFFcr000cj0cx0"
+  )
+
+  async def asyncSetUp(self):
+    from pylabrobot.resources import set_tip_tracking, set_volume_tracking
+    from pylabrobot.resources.corning import cor_96_wellplate_360uL_Fb
+    from pylabrobot.resources.hamilton import (
+      PLT_CAR_L5AC_A00,
+      TIP_CAR_480_A00,
+      hamilton_96_tiprack_1000uL_filter,
+    )
+
+    set_tip_tracking(True)
+    set_volume_tracking(True)
+    self.addCleanup(set_tip_tracking, False)
+    self.addCleanup(set_volume_tracking, False)
+    self.deck = STARLetDeck()
+    self.driver = STARSimulationDriver(
+      deck=self.deck, declared_configuration_json=RECORDING_STARLET
+    )
+    await self.driver.setup()
+    self.head = cast(Head96, self.driver.head96)
+    tip_car = TIP_CAR_480_A00(name="tip carrier")
+    tip_car[2] = self.tips = hamilton_96_tiprack_1000uL_filter(name="tip_rack_02")
+    self.deck.assign_child_resource(tip_car, track=1)
+    plate_car = PLT_CAR_L5AC_A00(name="plate carrier")
+    plate_car[0] = self.plate = cor_96_wellplate_360uL_Fb(name="plate_01")
+    self.deck.assign_child_resource(plate_car, track=9)
+    self.sent: List[str] = []
+    log = self.driver._log_exchange
+
+    def recorded(written: str, read: Optional[str]) -> None:
+      if written[:4] in ("C0EA", "C0ED"):
+        self.sent.append(written)
+      log(written, read)
+
+    self.driver._log_exchange = recorded  # type: ignore[method-assign]
+    await self.head.pick_up_tips(self.tips)
+
+  async def test_the_commands_are_legacys(self):
+    for well in self.plate.get_all_items():
+      well.tracker.set_volume(150.0)
+    await self.head.aspirate(self.plate, 100.0, blow_out=True)
+    await self.head.dispense(self.plate, 100.0, blow_out=True)
+    self.assertEqual(self.sent, [self.EA, self.ED])
+
+  async def test_the_volume_goes_from_well_to_tip_and_back(self):
+    wells = self.plate.get_all_items()
+    for well in wells:
+      well.tracker.set_volume(150.0)
+    shafts = cast(NChannelPipette, self.head.resource).get_all_items()
+    await self.head.aspirate(self.plate, 100.0)
+    self.assertAlmostEqual(wells[0].tracker.get_used_volume(), 50.0)
+    self.assertAlmostEqual(shafts[95].tip.tracker.get_used_volume(), 100.0)
+    await self.head.dispense(self.plate, 100.0)
+    self.assertAlmostEqual(wells[95].tracker.get_used_volume(), 150.0)
+    self.assertAlmostEqual(shafts[0].tip.tracker.get_used_volume(), 0.0)
+
+  async def test_a_reservoir_is_worked_with_the_head_centred_over_it(self):
+    from pylabrobot.resources.corning.axygen.plates import cor_axy_1_troughplate_300mL_Vb
+
+    plate_car = cast(Any, self.plate.parent).parent
+    reservoir = cor_axy_1_troughplate_300mL_Vb("reservoir")
+    plate_car[1] = reservoir
+    trough = reservoir.get_item(0)
+    trough.tracker.set_volume(100_000.0)
+    await self.head.aspirate(reservoir, 100.0)
+    self.assertAlmostEqual(trough.tracker.get_used_volume(), 100_000.0 - 96 * 100.0)
+    a1 = self.head._liquid_targets(reservoir, None)[0]
+    centre = trough.get_location_wrt(self.deck, x="c", y="c")
+    self.assertAlmostEqual(a1.x + 11 * 9 / 2, centre.x, places=6)
+    self.assertAlmostEqual(a1.y - 7 * 9 / 2, centre.y, places=6)
+
+  async def test_what_cannot_be_reached_is_refused_before_anything_is_sent(self):
+    for well in self.plate.get_all_items():
+      well.tracker.set_volume(150.0)
+    with self.assertRaises(ValueError):
+      await self.head.aspirate(self.plate, 100.0, offset=Coordinate(0, 1000, 0))
+    with self.assertRaises(ValueError):
+      await self.head.aspirate(self.plate, 100.0, liquid_height=400.0)
+    self.assertEqual(self.sent, [])
+    self.assertAlmostEqual(self.plate.get_item(0).tracker.get_used_volume(), 150.0)
+
+
 class TestProbeZUsingCLLD(unittest.IsolatedAsyncioTestCase):
   async def asyncSetUp(self):
     from pylabrobot.resources import set_tip_tracking
