@@ -1014,6 +1014,29 @@ class Pipettes:
     if not low <= value <= high:
       raise ValueError(f"{axis} must be between {low} and {high} mm, is {value}")
 
+  def _check_tool_bottom_reachable(self, z: float, overhang: float) -> None:
+    """Raise if a point `overhang` below a channel's stop disc - a tip's bottom, a CO-RE grip
+    tool's grip line - cannot be put at `z`.
+
+    The Z drive works in stop-disc terms over `z_range`, so what that point reaches is the window
+    shifted down by the overhang, and no lower than a stop disc itself may go. Part of the gate
+    (`_check_reachable`): every height given for something a channel carries passes here.
+
+    Args:
+      z: where the point would be sent, in mm on the deck.
+      overhang: how far it hangs below the stop disc, in mm.
+
+    Raises:
+      ValueError: If it cannot be put there.
+    """
+    c = self.configuration
+    low = round(max(c.z_range[0] - overhang, c.z_range[0]), 2)
+    high = round(c.z_range[1] - overhang, 2)
+    if not low <= z <= high:
+      raise ValueError(
+        f"the tool bottom reaches {low} to {high} mm with a {overhang} mm overhang, not {z}"
+      )
+
   # -- Memory of Speed & Acceleration --------------------------------------------------------------
 
   # -- the raw register access these share --
@@ -1707,18 +1730,9 @@ class Pipettes:
       ValueError: If the channel carries no tip, or it cannot put the tip bottom at `z`.
     """
     self._require_channel(channel)
-    c = self.configuration
     await self._require_tips([channel], "move_stop_disc_to_z_position")
     overhang = await self.request_tip_overhang(channel)
-
-    # The drive works in stop-disc terms over `z_range`, so what the tip bottom reaches is that
-    # window shifted down by the overhang, and no lower than a stop disc itself may go.
-    low = round(max(c.z_range[0] - overhang, c.z_range[0]), 2)
-    high = round(c.z_range[1] - overhang, 2)
-    if not low <= z <= high:
-      raise ValueError(
-        f"the tool bottom reaches {low} to {high} mm with a {overhang} mm overhang, not {z}"
-      )
+    self._check_tool_bottom_reachable(z, overhang)
 
     return await self.move_stop_disc_to_z_position(
       channel,
@@ -4385,6 +4399,9 @@ class Pipettes:
       front_channel: self._tool_pick_up_point(tools[front_channel], places[front_channel]) + front,
     }
     x, top = points[front_channel].x, points[front_channel].z
+    self._check_reachable("x", round(x, 1))
+    for point in points.values():
+      self._check_reachable("y", round(point.y, 1))
     traverse = self._tip_traverse_height([], minimum_traverse_height)
 
     command_error: Optional[BaseException] = None

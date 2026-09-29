@@ -66,6 +66,55 @@ def _norm(degrees: float) -> float:
   return (degrees + 180.0) % 360.0 - 180.0 if (degrees + 180.0) % 360.0 else 180.0
 
 
+def placement(
+  deck: Resource, resource: Resource, destination: Union[Resource, Coordinate], turned_by: float
+) -> Tuple[float, Coordinate]:
+  """Which way `resource` ends up turned against `destination`, and where its corner lands on the
+  deck - as PyLabRobot places it there (`place`). Shared by the iSWAP and the CO-RE gripper."""
+  after = resource.get_absolute_rotation().z + turned_by
+  if isinstance(destination, Coordinate):
+    return after, destination
+  wrt_destination = after - destination.get_absolute_rotation().z
+  turned = resource.rotated(z=wrt_destination - resource.rotation.z)
+  base = destination.get_location_wrt(deck)
+  dest_rotation = destination.get_absolute_rotation()
+  if isinstance(destination, ResourceStack):
+    local = destination.get_new_child_location(turned)
+  elif isinstance(destination, ResourceHolder):
+    local = destination.get_default_child_location(turned)
+  elif isinstance(destination, PlateAdapter) and isinstance(resource, Plate):
+    local = destination.compute_plate_location(cast(Plate, turned))
+  elif isinstance(destination, Plate) and isinstance(resource, Lid):
+    local = destination.get_lid_location(cast(Lid, turned))
+  else:
+    local = Coordinate.zero()
+  return wrt_destination, base + local.rotated(dest_rotation)
+
+
+def place(
+  deck: Resource, resource: Resource, destination: Union[Resource, Coordinate], rotation: float
+) -> None:
+  """Put `resource` on what it was let go over, as PyLabRobot places it there."""
+  resource.unassign()
+  resource.rotation = Rotation(z=rotation % 360)
+  if isinstance(destination, Coordinate):
+    deck.assign_child_resource(
+      resource, location=destination - (deck.location or Coordinate.zero())
+    )
+  elif isinstance(destination, (ResourceHolder, ResourceStack)):
+    destination.assign_child_resource(resource)
+  elif isinstance(destination, PlateAdapter) and isinstance(resource, Plate):
+    destination.assign_child_resource(
+      resource, location=destination.compute_plate_location(resource)
+    )
+  elif isinstance(destination, Plate) and isinstance(resource, Lid):
+    destination.assign_child_resource(resource)
+  elif isinstance(destination, Trash):
+    pass
+  else:
+    destination.assign_child_resource(resource, location=Coordinate.zero())
+
+
 def _rotate(point: Coordinate, degrees: float) -> Coordinate:
   a = math.radians(degrees)
   return Coordinate(
@@ -563,26 +612,8 @@ class iSWAPTransport:
   def _placement(
     self, resource: Resource, destination: Union[Resource, Coordinate], turned_by: float
   ) -> Tuple[float, Coordinate]:
-    """Which way `resource` ends up turned against `destination`, and where its corner lands on the
-    deck - as PyLabRobot places it there (`_assign_after_drop` below)."""
-    after = resource.get_absolute_rotation().z + turned_by
-    if isinstance(destination, Coordinate):
-      return after, destination
-    wrt_destination = after - destination.get_absolute_rotation().z
-    turned = resource.rotated(z=wrt_destination - resource.rotation.z)
-    base = destination.get_location_wrt(self.deck)
-    dest_rotation = destination.get_absolute_rotation()
-    if isinstance(destination, ResourceStack):
-      local = destination.get_new_child_location(turned)
-    elif isinstance(destination, ResourceHolder):
-      local = destination.get_default_child_location(turned)
-    elif isinstance(destination, PlateAdapter) and isinstance(resource, Plate):
-      local = destination.compute_plate_location(cast(Plate, turned))
-    elif isinstance(destination, Plate) and isinstance(resource, Lid):
-      local = destination.get_lid_location(cast(Lid, turned))
-    else:
-      local = Coordinate.zero()
-    return wrt_destination, base + local.rotated(dest_rotation)
+    """As `placement`, on this transport's deck."""
+    return placement(self.deck, resource, destination, turned_by)
 
   # -- doing it ---------------------------------------------------------------------------------
 
@@ -661,26 +692,8 @@ class iSWAPTransport:
   def _place(
     self, resource: Resource, destination: Union[Resource, Coordinate], rotation: float
   ) -> None:
-    """Put `resource` on what it was let go over, as PyLabRobot places it there."""
-    resource.unassign()
-    resource.rotation = Rotation(z=rotation % 360)
-    deck = self.deck
-    if isinstance(destination, Coordinate):
-      deck.assign_child_resource(
-        resource, location=destination - (deck.location or Coordinate.zero())
-      )
-    elif isinstance(destination, (ResourceHolder, ResourceStack)):
-      destination.assign_child_resource(resource)
-    elif isinstance(destination, PlateAdapter) and isinstance(resource, Plate):
-      destination.assign_child_resource(
-        resource, location=destination.compute_plate_location(resource)
-      )
-    elif isinstance(destination, Plate) and isinstance(resource, Lid):
-      destination.assign_child_resource(resource)
-    elif isinstance(destination, Trash):
-      pass
-    else:
-      destination.assign_child_resource(resource, location=Coordinate.zero())
+    """As `place`, on this transport's deck."""
+    place(self.deck, resource, destination, rotation)
 
   # -- the whole move ---------------------------------------------------------------------------
 
