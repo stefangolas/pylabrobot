@@ -568,7 +568,7 @@ def thermo_TS_abgene_96_wellplate_800uL_Vb(name: str) -> Plate:
     2.4 mm, floor 3 mm above the plate's bottom, 27 mm deep, so 30 mm to the top; A1 at 14.38 x
     11.24 mm (ANSI). Hamilton's 3D model of the plate (`0.8 mL Abgene MIDI Plate.x`) agrees on the
     heights and grid; its wells are drawn 7.32 mm across. The well's floor thickness (0.2 mm) is
-    from that model.
+    from that model. Stacking pitch 28.75 mm, from the same definition (`StackHt`).
 
   https://www.thermofisher.com/order/catalog/product/AB0859
   """
@@ -578,6 +578,7 @@ def thermo_TS_abgene_96_wellplate_800uL_Vb(name: str) -> Plate:
     size_y=85.48,
     size_z=30.0,
     lid=None,
+    stacking_z_height=28.75,
     model=thermo_TS_abgene_96_wellplate_800uL_Vb.__name__,
     plate_type="skirted",
     ordered_items=create_ordered_items_2d(

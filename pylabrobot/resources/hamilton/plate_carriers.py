@@ -522,6 +522,7 @@ def PLT_CAR_L4ST_B00(name: str) -> PlateCarrier:
       resource_size_x=127.0,
       resource_size_y=86.0,
       name_prefix=name,
+      pedestal_size_z=0,  # plates stand on the stack's floor
     ),
     model="PLT_CAR_L4ST_B00",
   )
@@ -545,6 +546,7 @@ def PLT_CAR_L4ST_B00_4x5_Nunc96(name: str) -> PlateCarrier:
       resource_size_x=127.0,
       resource_size_y=86.0,
       name_prefix=name,
+      pedestal_size_z=0,  # plates stand on the stack's floor
     ),
     model="PLT_CAR_L4ST_B00_4x5_Nunc96",
   )
@@ -568,6 +570,7 @@ def PLT_CAR_L4ST_C00(name: str) -> PlateCarrier:
       resource_size_x=127.0,
       resource_size_y=86.0,
       name_prefix=name,
+      pedestal_size_z=0,  # plates stand on the stack's floor
     ),
     model="PLT_CAR_L4ST_C00",
   )
@@ -591,6 +594,7 @@ def PLT_CAR_L4ST_HIGH_A00(name: str) -> PlateCarrier:
       resource_size_x=127.0,
       resource_size_y=86.0,
       name_prefix=name,
+      pedestal_size_z=0,  # plates stand on the stack's floor
     ),
     model="PLT_CAR_L4ST_HIGH_A00",
   )
@@ -614,6 +618,7 @@ def PLT_CAR_L4ST_HIGH_A00_4x5_Nunc96(name: str) -> PlateCarrier:
       resource_size_x=127.0,
       resource_size_y=86.0,
       name_prefix=name,
+      pedestal_size_z=0,  # plates stand on the stack's floor
     ),
     model="PLT_CAR_L4ST_HIGH_A00_4x5_Nunc96",
   )
@@ -637,6 +642,7 @@ def PLT_CAR_L4ST_LOW_A00(name: str) -> PlateCarrier:
       resource_size_x=127.0,
       resource_size_y=86.0,
       name_prefix=name,
+      pedestal_size_z=0,  # plates stand on the stack's floor
     ),
     model="PLT_CAR_L4ST_LOW_A00",
   )
@@ -660,6 +666,7 @@ def PLT_CAR_L4ST_LOW_A00_4x9_Nunc96(name: str) -> PlateCarrier:
       resource_size_x=127.0,
       resource_size_y=86.0,
       name_prefix=name,
+      pedestal_size_z=0,  # plates stand on the stack's floor
     ),
     model="PLT_CAR_L4ST_LOW_A00_4x9_Nunc96",
   )

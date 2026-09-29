@@ -84,6 +84,8 @@ def biorad_96_wellplate_200uL_Vb(name: str) -> Plate:
     conical section, 17.5 degree well angle. The rim stands 0.58 mm above the deck.
   - Cavity floor 0.91 mm above the outer well tip: from Hamilton's 3D model of the plate
     (`BioRad PCR Full Skirt White.x`, NGS STAR labware), not a manufacturer figure.
+  - Stacking pitch 12.25 mm: Hamilton's labware definition (`BioRadHardshell.rck`, `StackHt`),
+    the same in every NGS STAR kit.
 
   https://www.bio-rad.com/webroot/web/pdf/lsr/literature/Bulletin_5496.pdf
   """
@@ -93,6 +95,7 @@ def biorad_96_wellplate_200uL_Vb(name: str) -> Plate:
     size_y=85.48,
     size_z=16.06,
     lid=None,
+    stacking_z_height=12.25,
     model=biorad_96_wellplate_200uL_Vb.__name__,
     plate_type="skirted",
     ordered_items=create_ordered_items_2d(
