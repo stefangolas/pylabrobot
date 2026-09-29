@@ -83,6 +83,20 @@ CORE_TOOL_RETURN_END_BELOW_TOP = 30.0
 """An X tolerance wider than any deck: X alone never splits a tip command into batches, so spots
 spread across columns go out in one, as legacy sends them."""
 
+
+def core_tool_face_distance(tool: HamiltonCoreGripperTool) -> float:
+  """How far a CO-RE grip tool's face stands from its channel's axis, in Y."""
+  pick_up = tool.pick_up_location or tool.get_anchor("c", "c", "t")
+  return float(tool.get_size_y() - pick_up.y)
+
+
+def core_tool_grip_line_overhang(tool: HamiltonCoreGripperTool) -> float:
+  """How far a mounted CO-RE grip tool's grip line hangs below its channel's stop disc, in mm: the
+  height the CO-RE plate commands are given in."""
+  pick_up = tool.pick_up_location or tool.get_anchor("c", "c", "t")
+  return float(pick_up.z - tool.fitting_depth - tool.grip_line_height)
+
+
 T = TypeVar("T")
 
 ChannelType = Literal["ML_STAR", "ML_STAR_RPC"]
@@ -4454,6 +4468,216 @@ class Pipettes:
       yield
     finally:
       await self.return_core_gripper_tools()
+
+  # -- CO-RE plate moves ------------------------------------------------------------------------
+  # The two tool channels close on a plate's front and back sides. Positions are the plate's
+  # centre in X and Y and the tools' grip line in Z, in mm on the deck; every one passes the gate.
+  # Moving resources with them, with the model kept, is `COREGripper`'s.
+
+  def _core_grip_channels(self) -> Tuple[int, int, HamiltonCoreGripperTool]:
+    """The back and front tool channels and the front tool.
+
+    Raises:
+      RuntimeError: If two adjacent channels do not carry the tools.
+    """
+    channels = self.get_core_gripper_channels()
+    if len(channels) != 2 or channels[1] != channels[0] + 1:
+      raise RuntimeError(f"the channels carrying CO-RE grip tools are {channels}, not two adjacent")
+    tool = self.get_mounted_tool(channels[1])
+    assert isinstance(tool, HamiltonCoreGripperTool)
+    return channels[0], channels[1], tool
+
+  def _check_core_grip_reachable(
+    self, centre: Coordinate, width: float, heights: Sequence[float], tool: HamiltonCoreGripperTool
+  ) -> None:
+    """Raise unless both tool channels reach a grip `width` across centred at `centre`, the grip
+    line at each of `heights`: X by the arm's travel, each channel's Y by the band, Z as a point
+    `core_tool_grip_line_overhang` below the stop disc.
+
+    Raises:
+      ValueError: If they cannot.
+    """
+    half = width / 2 + core_tool_face_distance(tool)
+    self._check_reachable("x", round(centre.x, 1))
+    for y in (centre.y - half, centre.y + half):
+      self._check_reachable("y", round(y, 1))
+    for z in heights:
+      self._check_tool_bottom_reachable(round(z, 1), core_tool_grip_line_overhang(tool))
+
+  async def _require_iswap_parked(self) -> None:
+    iswap = getattr(self.arm, "iswap", None)
+    if iswap is not None and not await iswap.request_is_parked():
+      raise RuntimeError("the iSWAP is not parked, and the channels move where it stands")
+
+  async def _unchecked_fw_core_get_plate(
+    self,
+    x_position: int,
+    y_position: int,
+    y_gripping_speed: int,
+    z_position: int,
+    z_speed: int,
+    open_gripper_position: int,
+    plate_width: int,
+    grip_strength: int,
+    minimum_traverse_height: int,
+    z_position_at_the_command_end: int,
+  ):
+    """Send the grip as it is given, in tenths of a millimetre. `C0 ZP`, as legacy sends it."""
+    return await self._driver.send_command(
+      module="C0",
+      command="ZP",
+      subsystem=_FirmwareLock.CHANNELS,
+      xs=f"{x_position:05}",
+      xd=0,
+      yj=f"{y_position:04}",
+      yv=f"{y_gripping_speed:04}",
+      zj=f"{z_position:04}",
+      zy=f"{z_speed:04}",
+      yo=f"{open_gripper_position:04}",
+      yg=f"{plate_width:04}",
+      yw=f"{grip_strength:02}",
+      th=f"{minimum_traverse_height:04}",
+      te=f"{z_position_at_the_command_end:04}",
+    )
+
+  async def _unchecked_fw_core_move_plate(
+    self,
+    x_position: int,
+    y_position: int,
+    z_position: int,
+    z_speed: int,
+    minimum_traverse_height: int,
+  ):
+    """Send the carry as it is given, in tenths of a millimetre. `C0 ZM`, as legacy sends it."""
+    return await self._driver.send_command(
+      module="C0",
+      command="ZM",
+      subsystem=_FirmwareLock.CHANNELS,
+      xs=f"{x_position:05}",
+      xd=0,
+      xg=4,
+      yj=f"{y_position:04}",
+      zj=f"{z_position:04}",
+      zy=f"{z_speed:04}",
+      th=f"{minimum_traverse_height:04}",
+    )
+
+  async def _unchecked_fw_core_put_plate(
+    self,
+    x_position: int,
+    y_position: int,
+    z_position: int,
+    open_gripper_position: int,
+    minimum_traverse_height: int,
+    z_position_at_the_command_end: int,
+  ):
+    """Send the release as it is given, in tenths of a millimetre. `C0 ZR`, as legacy sends it."""
+    return await self._driver.send_command(
+      module="C0",
+      command="ZR",
+      subsystem=_FirmwareLock.CHANNELS,
+      xs=f"{x_position:05}",
+      xd=0,
+      yj=f"{y_position:04}",
+      zj=f"{z_position:04}",
+      zi="000",
+      zy="0500",
+      yo=f"{open_gripper_position:04}",
+      th=f"{minimum_traverse_height:04}",
+      te=f"{z_position_at_the_command_end:04}",
+    )
+
+  async def core_grip_plate(
+    self,
+    centre: Coordinate,
+    width: float,
+    squeeze: float = 3.0,
+    grip_strength: int = 15,
+    y_gripping_speed: float = 5.0,
+    z_speed: float = 50.0,
+    traverse_height: float = 280.0,
+  ) -> None:
+    """Close the tools on a plate `width` across, centred at `centre` with the grip line at
+    `centre.z`, and lift it to `traverse_height`.
+
+    Args:
+      squeeze: how much narrower than `width` the tools close, and wider they open first, in mm.
+
+    Raises:
+      RuntimeError: If the channels do not carry the tools, or the iSWAP is not parked.
+      ValueError: If a position cannot be reached.
+    """
+    _, _, tool = self._core_grip_channels()
+    self._check_core_grip_reachable(centre, width, (centre.z, traverse_height), tool)
+    await self._require_iswap_parked()
+    try:
+      await self._unchecked_fw_core_get_plate(
+        x_position=round(centre.x * 10),
+        y_position=round(centre.y * 10),
+        y_gripping_speed=round(y_gripping_speed * 10),
+        z_position=round(centre.z * 10),
+        z_speed=round(z_speed * 10),
+        open_gripper_position=round((width + squeeze) * 10),
+        plate_width=round((width - squeeze) * 10),
+        grip_strength=grip_strength,
+        minimum_traverse_height=round(traverse_height * 10),
+        z_position_at_the_command_end=round(traverse_height * 10),
+      )
+    finally:
+      await self._record_after_command()
+
+  async def core_move_gripped_plate(
+    self, centre: Coordinate, width: float, z_speed: float = 50.0, traverse_height: float = 280.0
+  ) -> None:
+    """Carry the gripped plate, `width` across, so it is centred at `centre`, grip line at
+    `centre.z`.
+
+    Raises:
+      RuntimeError: If the channels do not carry the tools.
+      ValueError: If a position cannot be reached.
+    """
+    _, _, tool = self._core_grip_channels()
+    self._check_core_grip_reachable(centre, width, (centre.z, traverse_height), tool)
+    try:
+      await self._unchecked_fw_core_move_plate(
+        x_position=round(centre.x * 10),
+        y_position=round(centre.y * 10),
+        z_position=round(centre.z * 10),
+        z_speed=round(z_speed * 10),
+        minimum_traverse_height=round(traverse_height * 10),
+      )
+    finally:
+      await self._record_after_command()
+
+  async def core_release_plate(
+    self,
+    centre: Coordinate,
+    width: float,
+    open_margin: float = 3.0,
+    traverse_height: float = 280.0,
+    end_height: float = 280.0,
+  ) -> None:
+    """Put the gripped plate, `width` across, down centred at `centre` with the grip line at
+    `centre.z`, open the tools `open_margin` wider than it, and rise to `end_height`.
+
+    Raises:
+      RuntimeError: If the channels do not carry the tools, or the iSWAP is not parked.
+      ValueError: If a position cannot be reached.
+    """
+    _, _, tool = self._core_grip_channels()
+    self._check_core_grip_reachable(centre, width, (centre.z, traverse_height, end_height), tool)
+    await self._require_iswap_parked()
+    try:
+      await self._unchecked_fw_core_put_plate(
+        x_position=round(centre.x * 10),
+        y_position=round(centre.y * 10),
+        z_position=round(centre.z * 10),
+        open_gripper_position=round((width + open_margin) * 10),
+        minimum_traverse_height=round(traverse_height * 10),
+        z_position_at_the_command_end=round(end_height * 10),
+      )
+    finally:
+      await self._record_after_command()
 
   # -- tip drop --------------------------------------------------
 
