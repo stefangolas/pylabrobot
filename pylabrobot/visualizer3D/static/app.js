@@ -106,7 +106,7 @@ import {
   revealAndHighlight,
   showPane,
 } from "./tree.js";
-import { buildWorld, setWorld, world } from "./world.js";
+import { buildWorld, modelOf, setWorld, world } from "./world.js";
 
 // A facility viewer that knows nothing about liquid handlers.
 //
