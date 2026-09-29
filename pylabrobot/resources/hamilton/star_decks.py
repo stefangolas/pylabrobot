@@ -70,13 +70,14 @@ class HamiltonSTARDeck(HamiltonDeck):
     )
 
     if with_trash96:
-      # got this location from a .lay file, but will probably need to be adjusted by the user.
-      trash96 = Trash(
-        self.get_component_name("trash_core96"), size_x=122.4, size_y=82.6, size_z=0
-      )  # size of tiprack
+      # Hamilton's CO-RE 96 slide waste (tip chute): its 121 x 85 rack, which Core96SlideWaste.tml
+      # on deck site 96CORESlideWaste puts at (-52.95, 46.2); the head centred over it has channel
+      # A1 at (-42.0, 120.3). The Z is where tips are ejected. Other 96-head wastes (the NGS STAR
+      # decks' external waste without chute) need their own trash.
+      trash96 = Trash(self.get_component_name("trash_core96"), size_x=121.0, size_y=85.0, size_z=0)
       self.assign_child_resource(
         resource=trash96,
-        location=Coordinate(x=-42.0 - 16.2, y=120.3 - 14.3, z=216.4),
+        location=Coordinate(x=-42.0 - (121.0 - 99.0) / 2, y=120.3 - (85.0 + 63.0) / 2, z=216.4),
       )
 
     if with_waste_block:

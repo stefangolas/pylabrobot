@@ -371,8 +371,9 @@ class Head96(Head):
   def _position_centred_in(self, resource: Resource) -> Coordinate:
     """Where head channel A1 lands with the head centred over a resource, in deck mm.
 
-    The head is rigid and the resource is whatever it is being pointed at, so the array is put in
-    the middle of it and A1 falls half a channel pitch in from the array's own corner.
+    The head is rigid and the resource is whatever it is being pointed at, so the array of channel
+    centres (`channel_array_size_x` by `_y`, centre to centre) is put in the middle of it, and A1 is
+    its back-left corner: rows run A at the back to H at the front.
 
     Args:
       resource: what to centre over.
@@ -389,8 +390,8 @@ class Head96(Head):
     c = self.configuration
     location = resource.get_location_wrt(deck)
     return Coordinate(
-      location.x + (resource.get_size_x() - c.channel_array_size_x) / 2 + c.channel_pitch / 2,
-      location.y + (resource.get_size_y() - c.channel_array_size_y) / 2 + c.channel_pitch / 2,
+      location.x + (resource.get_size_x() - c.channel_array_size_x) / 2,
+      location.y + (resource.get_size_y() + c.channel_array_size_y) / 2,
       location.z,
     )
 

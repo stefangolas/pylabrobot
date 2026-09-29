@@ -237,6 +237,18 @@ class TestHead96Tips(unittest.IsolatedAsyncioTestCase):
       await self.head.pick_up_tips(self.tip_rack)
     self.assertEqual(self.sent, [])
 
+  def test_centred_over_a_waste_where_its_rack_is(self):
+    """Hamilton's external 96-head waste (Core96ExternalWaste.tml, NGS STAR decks): its 122.4 x
+    82.6 rack at (-242.7, 44.45) has A1 at (-231.0, 117.25) in Venus. Centred over it, the head's
+    channel A1 (its back-left channel) is there."""
+    from pylabrobot.resources import Trash
+
+    waste = Trash("external_waste", size_x=122.4, size_y=82.6, size_z=0)
+    self.deck.assign_child_resource(waste, location=Coordinate(-242.7, 44.45, 185.0))
+    a1 = self.head._position_centred_in(waste)
+    self.assertAlmostEqual(a1.x, -231.0, places=6)
+    self.assertAlmostEqual(a1.y, 117.25, places=6)
+
   async def test_an_offset_of_whole_columns_picks_up_what_is_under_the_head(self):
     """Head channel A1 over spot A5: channels in columns 1-8 take the tips of columns 5-12; the
     rest of the head hangs past the rack, and columns 1-4 keep their tips."""

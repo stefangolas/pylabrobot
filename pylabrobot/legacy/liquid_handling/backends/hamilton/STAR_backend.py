@@ -4460,13 +4460,12 @@ class STARBackend(HamiltonLiquidHandler, HamiltonHeaterShakerInterface):
 
   def _position_96_head_in_resource(self, resource: Resource) -> Coordinate:
     """The firmware command expects location of tip A1 of the head. We center the head in the given
-    resource."""
+    resource: A1 is the back-left corner of the centred array of channel centres."""
     head_size_x = 9 * 11  # 12 channels, 9mm spacing in between
     head_size_y = 9 * 7  #   8 channels, 9mm spacing in between
-    channel_size = 9
     loc = resource.get_location_wrt(self.deck)
-    loc.x += (resource.get_size_x() - head_size_x) / 2 + channel_size / 2
-    loc.y += (resource.get_size_y() - head_size_y) / 2 + channel_size / 2
+    loc.x += (resource.get_size_x() - head_size_x) / 2
+    loc.y += (resource.get_size_y() + head_size_y) / 2
     return loc
 
   def _check_96_position_legal(self, c: Coordinate, skip_z=False) -> None:
