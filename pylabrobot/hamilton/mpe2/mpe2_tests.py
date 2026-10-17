@@ -134,34 +134,46 @@ class TestSimulation(unittest.TestCase):
       asyncio.run(getattr(d, name)(**kwargs))
 
   def test_nist_dna_extraction(self):
-    """Stage 04 (to collection), 05-07 (to waste), 08 (to collection), as the method drives it."""
+    """The MPE² calls of the NIST DNA Extraction, in order.
+
+    Stages 04-07 each run the method's `FilterPlateToWaste` wrapper: placed, to waste with the plate
+    returned, removed. Stage 04's "filter plate" is the filter plate stacked on the receiving plate,
+    86.5 mm together, so the lysate collects in the receiving plate under it. Stage 08 clamps the
+    binding plate, then places the elution plate under it and presses to collection.
+    """
     d = MPE2SimulationDriver()
     seen: list = []
     d.add_state_observer(seen.append)
+
+    def to_waste(f, n, points):
+      return [
+        ("filter_plate_placed", {"filter_height": f, "nozzle_height": n}),
+        ("process_filter_plate_to_waste", {"control_points": points}),
+        ("filter_plate_removed", {}),
+      ]
+
     self.run_steps(
       d,
       ("initialize", {}),
-      ("collection_plate_placed", {"collection_plate_height": 44.2, "offset_from_nozzles": 0}),
-      ("filter_plate_placed", {"filter_height": 86.5, "nozzle_height": 86.5}),
-      ("process_filter_plate_to_collection", {"control_points": "pressure,20,240;pressure,65,60;"}),
-      ("filter_plate_removed", {}),
-      ("collection_plate_removed", {}),
+      *to_waste(86.5, 86.5, "pressure,20,240;pressure,65,60;"),
+      *to_waste(31.35, 38.4, "pressure,40,60;"),
+      *to_waste(31.35, 38.4, "pressure,40,60;"),
+      *to_waste(31.35, 38.4, "pressure,40,60;pressure,65,420;"),
       ("filter_plate_placed", {"filter_height": 31.35, "nozzle_height": 38.4}),
-      ("process_filter_plate_to_waste", {"control_points": "pressure,40,60;"}),
-      ("process_filter_plate_to_waste", {"control_points": "pressure,40,60;pressure,65,420;"}),
+      ("clamp_filter_plate", {}),
+      ("collection_plate_placed", {"collection_plate_height": 14.35, "offset_from_nozzles": 0}),
+      (
+        "process_filter_plate_to_collection",
+        {"control_points": "pressure,65,420;", "return_filter_plate_to_integration_area": False},
+      ),
+      ("collection_plate_removed", {}),
+      ("retrieve_filter_plate", {}),
+      ("filter_plate_removed", {}),
     )
-    self.assertEqual(d.state, S.FILTER_PLATE_PLACED)
-    self.assertEqual([p[0] for p in d.processed], ["collection", "waste", "waste"])
+    self.assertEqual(d.state, S.READY)
+    self.assertEqual([p[0] for p in d.processed], ["waste"] * 4 + ["collection"])
     self.assertIn(S.PROCESS_FILTER_PLATE_TO_COLLECTION, seen)
-    self.assertEqual(
-      d.traversed,
-      [
-        S.CLAMPING_FILTER_PLATE_1,
-        S.PROCESS_FILTER_PLATE_TO_WASTE,
-        S.RETRIEVING_FILTER_PLATE_1,
-        S.FILTER_PLATE_PLACED,
-      ],
-    )
+    self.assertEqual(seen.count(S.CLAMPING_FILTER_PLATE_1), 5)  # four presses to waste, one clamp
 
   def test_refuses_out_of_state(self):
     d = MPE2SimulationDriver()
