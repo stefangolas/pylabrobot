@@ -314,7 +314,9 @@ class MPE2SimulationDriver(MPE2Driver):
         S.INTEGRATION_AREA_PLATE_STACK if self.collection_plate else S.FILTER_PLATE_PLACED
       )
     elif command_type is CollectionPlatePlaced:
-      self._require({S.READY}, name)
+      # Also with the filter plate clamped: the integration area is then free, and the NIST DNA
+      # Extraction's elution places the collection plate there after clamping.
+      self._require({S.READY, S.FILTER_PLATE_CLAMPED}, name)
       self.collection_plate = True
       self.labware = LabwareParameters(
         self.labware.filter_plate_height,
@@ -323,7 +325,7 @@ class MPE2SimulationDriver(MPE2Driver):
         params["offset_from_nozzles"],
         self.labware.maximum_penetration,
       )
-      await self._go(S.COLLECTION_PLATE_PLACED)
+      await self._go(S.FILTER_PLATE_CLAMPED if self.clamped else S.COLLECTION_PLATE_PLACED)
     elif command_type is ClampFilterPlate:
       self._require({S.FILTER_PLATE_PLACED, S.INTEGRATION_AREA_PLATE_STACK}, name)
       self.clamped = True
@@ -366,9 +368,11 @@ class MPE2SimulationDriver(MPE2Driver):
       self.filter_plate = False
       await self._go(S.COLLECTION_PLATE_PLACED if self.collection_plate else S.READY)
     elif command_type is CollectionPlateRemoved:
-      self._require({S.COLLECTION_PLATE_PLACED}, name)
+      self._require({S.COLLECTION_PLATE_PLACED, S.FILTER_PLATE_CLAMPED}, name)
+      if not self.collection_plate:
+        raise MPE2Error(f"{name}: no collection plate")
       self.collection_plate = False
-      await self._go(S.READY)
+      await self._go(S.FILTER_PLATE_CLAMPED if self.clamped else S.READY)
     else:
       raise NotImplementedError(f"the simulation does not model {name}")
 
