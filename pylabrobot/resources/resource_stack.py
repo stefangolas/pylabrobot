@@ -21,7 +21,7 @@ class ResourceStack(Resource):
   another bare plate, it sinks in by ``size_z - stacking_z_height`` instead of resting at the
   lower plate's full height. A stack of ``N`` identical such plates is therefore
   ``size_z + (N - 1) * stacking_z_height`` tall. Plates without a ``stacking_z_height``, and plates
-  wearing a lid, do not nest. Standing tip racks nest into one another the same way.
+  wearing a lid, do not nest. Standing tip racks, and lids, nest into one another the same way.
 
   Attributes:
     name: The name of the resource group.
@@ -111,10 +111,13 @@ class ResourceStack(Resource):
     with a known ``stacking_z_height`` nests; the overlap is then ``size_z - stacking_z_height``
     (i.e. it adds only its stacking pitch to the stack instead of its full height)."""
     # Deferred: tip_rack imports this module.
+    from pylabrobot.resources.lid import Lid
     from pylabrobot.resources.tip_rack import StandingTipRack
 
     if self.direction != "z":
       return 0.0
+    if isinstance(upper, Lid) and upper.stacking_z_height is not None and isinstance(lower, Lid):
+      return upper.get_size_z() - upper.stacking_z_height
     if (
       isinstance(upper, Plate)
       and upper.stacking_z_height is not None

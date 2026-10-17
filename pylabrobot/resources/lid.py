@@ -31,6 +31,7 @@ class Lid(Resource):
     category: str = "lid",
     model: Optional[str] = None,
     metadata: Optional[Mapping[str, Any]] = None,
+    stacking_z_height: Optional[float] = None,
   ):
     """Create a lid.
 
@@ -40,6 +41,9 @@ class Lid(Resource):
       size_y: Size of the lid in y-direction.
       size_z: Size of the lid in z-direction.
       nesting_z_height: the overlap in mm between the lid and its parent (in the z-direction).
+      stacking_z_height: The vertical pitch in mm between two identical lids stacked directly on
+        top of each other (the height a lid adds to a stack of lids, ``size_z`` minus the overlap
+        with the lid below). Left as ``None`` when unknown, and then lids do not nest.
     """
     super().__init__(
       name=name,
@@ -51,14 +55,18 @@ class Lid(Resource):
       metadata=metadata,
     )
     self.nesting_z_height = nesting_z_height
+    self.stacking_z_height = stacking_z_height
     if nesting_z_height == 0:
       print(f"{self.name}: Are you certain that the lid nests 0 mm with its parent?")
 
   def serialize(self) -> dict:
-    return {
+    data = {
       **super().serialize(),
       "nesting_z_height": self.nesting_z_height,
     }
+    if self.stacking_z_height is not None:
+      data["stacking_z_height"] = self.stacking_z_height
+    return data
 
 
 class Liddable(Resource):

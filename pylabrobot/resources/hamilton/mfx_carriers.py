@@ -1,10 +1,16 @@
 import warnings
-from typing import Dict
+from typing import Dict, Optional
 
 from pylabrobot.resources.carrier import (
   Coordinate,
   MFXCarrier,
   ResourceHolder,
+)
+from pylabrobot.resources.hamilton.mfx_modules import (
+  hamilton_mfx_odtc_lid_park,
+  hamilton_mfx_plateholder_DWP_HP_tabbed,
+  hamilton_mfx_plateholder_MIDI_HP_tabbed,
+  hamilton_mfx_plateholder_MTP_HP_tabbed,
 )
 
 
@@ -45,6 +51,83 @@ def hamilton_mfx_carrier_L5_base(name: str, modules: Dict[int, ResourceHolder]) 
   )
 
 
+def hamilton_mfx_carrier_L5_2MTP_MIDI_2DWP_HP_tabbed(name: str) -> MFXCarrier:
+  """Hamilton's NGS STAR carrier 'MFX_CAR_2MTP HPTab_MIDI HPTab_2DWP HPTab': an L5 base with HP
+  Tabbed nests, from the front: two DWP (6601988-01), a MIDI (6600518-01), two MTP (6601987-01).
+  As assembled in the NGS STAR protocol labware (KAPA HyperPlus, 10x Genomics, PacBio, QIAseq).
+  """
+  return hamilton_mfx_carrier_L5_base(
+    name,
+    modules={
+      0: hamilton_mfx_plateholder_DWP_HP_tabbed(f"{name}_dwp_0"),
+      1: hamilton_mfx_plateholder_DWP_HP_tabbed(f"{name}_dwp_1"),
+      2: hamilton_mfx_plateholder_MIDI_HP_tabbed(f"{name}_midi"),
+      3: hamilton_mfx_plateholder_MTP_HP_tabbed(f"{name}_mtp_0"),
+      4: hamilton_mfx_plateholder_MTP_HP_tabbed(f"{name}_mtp_1"),
+    },
+  )
+
+
+def hamilton_mfx_carrier_7T_odtc(
+  name: str, odtc: Optional[ResourceHolder] = None, lid_park: bool = True
+) -> MFXCarrier:
+  """Hamilton's NGS STAR carrier 'MFX_CAR_ODTC_MTP' ("7T Carrier with ODTC and Park Position for
+  Hamilton Comfort Lid"): the MFX shaker carrier with an Inheco ODTC on its plate and, in front, a
+  park for the ODTC's ComfortLid.
+
+  `odtc` is the ODTC resource (e.g. `pylabrobot.legacy.thermocycling.inheco.inheco_odtc`); it is
+  placed so that a plate in it stands where Hamilton's template puts it (site 1_ODTC: X 15.25, Y
+  158.8, 94.5 above the carrier's bottom, 127 x 86). The lid park's lid site is 3_MFX (X 15.25,
+  Y 14.1, 107).
+  """
+  return _odtc_carrier(name, odtc, lid_park, odtc_site_z=94.5)
+
+
+def hamilton_mfx_carrier_7T_odtc_v2(
+  name: str, odtc: Optional[ResourceHolder] = None, lid_park: bool = True
+) -> MFXCarrier:
+  """Hamilton's revised template for the same carrier, 'MFX_CAR_ODTC_MTP_V2' (NGS STAR KAPA
+  HyperPlus, PacBio and Avenio kits): the ODTC's plate site 2.6 higher, at 97.1 above the
+  carrier's bottom (its lid site at 109.1); everything else as `hamilton_mfx_carrier_7T_odtc`.
+
+  The two templates share one 3D model, and the Bio-Rad plate definition shipped with V2 changes
+  only its well opening (5.40 -> 5.46), so the 2.6 is a change to the site, not to the plate. The
+  ODTC is raised to match and stands 2.6 above the carrier's plate: Hamilton's data does not say
+  what physically raises it.
+
+  V2 is also anchored differently: one track wide, at the carrier's right, with every site 201.8
+  to the left and 12.5 in front of V1's. That is where the kits mount the carrier (left of track 1,
+  see the NGS decks), not a property of the carrier, so it is not modelled here.
+  """
+  return _odtc_carrier(name, odtc, lid_park, odtc_site_z=97.1)
+
+
+def _odtc_carrier(
+  name: str, odtc: Optional[ResourceHolder], lid_park: bool, odtc_site_z: float
+) -> MFXCarrier:
+  sites: Dict[int, ResourceHolder] = {}
+  if lid_park:
+    park = hamilton_mfx_odtc_lid_park(f"{name}_lid_park")
+    # centred on the template's lid site
+    park.location = Coordinate(
+      15.25 + 127.0 / 2 - park.get_size_x() / 2, 14.1 + 86.0 / 2 - park.get_size_y() / 2, 8.0
+    )
+    sites[0] = park
+  if odtc is not None:
+    # the template's 127 x 86 plate site, an SBS plate centred on it
+    plate = Coordinate(15.25 + (127.0 - 127.76) / 2, 158.8 + (86.0 - 85.48) / 2, odtc_site_z)
+    odtc.location = plate - odtc.child_location
+    sites[1] = odtc
+  return MFXCarrier(
+    name=name,
+    size_x=157.5,
+    size_y=497.0,
+    size_z=8.0,
+    sites=sites,
+    model="MFX_CAR_7T_shaker",
+  )
+
+
 def MFX_CAR_L4_SHAKER(name: str, modules: Dict[int, ResourceHolder]) -> MFXCarrier:
   """Hamilton cat. no.: 187001
   Sometimes referred to as "PLT_CAR_L4_SHAKER" by Hamilton.
@@ -69,6 +152,35 @@ def MFX_CAR_L4_SHAKER(name: str, modules: Dict[int, ResourceHolder]) -> MFXCarri
     size_z=8.0,
     sites=sites,
     model="PLT_CAR_L4_SHAKER",
+  )
+
+
+def hamilton_mfx_carrier_7T_shaker(name: str, modules: Dict[int, ResourceHolder]) -> MFXCarrier:
+  """Hamilton MFX 4 position carrier for Heater Shakers ('MFX_CAR_7T', the Multiflex Carrier
+  Assistant's shaker carrier). 7 tracks wide; index 0 is the front position (Hamilton's position 4).
+
+  Each position holds a Hamilton Heater Shaker (`hamilton_heater_shaker`), or one on its riser
+  (`hamilton_heater_shaker_riser`), centred in its slot on the carrier's 8 mm plate, 120 mm
+  apart. From Hamilton's data: the catalogue gives the pitch (-120 mm from position 1 at the back)
+  and the site origin (15.25, 375.05); the carrier's 3D model and the Venus-assembled carriers
+  place each unit's centre at X 78.75, Y 58.05 + 120 i, on the plate at Z 8. Also available as
+  `MFX_CAR_L4_SHAKER`.
+  """
+  sites: Dict[int, ResourceHolder] = {}
+  for i, module in modules.items():
+    # centred on the slot's centre, whatever the module's footprint
+    module.location = Coordinate(
+      78.75 - module.get_size_x() / 2, 58.05 + 120.0 * i - module.get_size_y() / 2, 8.0
+    )
+    sites[i] = module
+
+  return MFXCarrier(
+    name=name,
+    size_x=157.5,
+    size_y=497.0,
+    size_z=8.0,  # the plate the units stand on; its side rails reach 21.5
+    sites=sites,
+    model="MFX_CAR_7T_shaker",
   )
 
 
