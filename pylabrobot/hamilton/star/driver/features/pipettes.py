@@ -5568,6 +5568,7 @@ class Pipettes:
     pull_out_distances_transport_air: Optional[List[float]] = None,
     transport_air_volumes: Optional[List[float]] = None,
     limit_curve_indices: Optional[List[int]] = None,
+    aspiration_types: Optional[List[int]] = None,
     minimum_traverse_height_end: Optional[float] = None,
   ) -> None:
     """Aspirate at each place given, the channels together, in one `C0 AS`.
@@ -5609,6 +5610,7 @@ class Pipettes:
       pull_out_distances_transport_air: rise before drawing transport air. 10.0 when None.
       transport_air_volumes: air drawn after the liquid. 0.0 when None.
       limit_curve_indices: TADM limit curve, 0 for none. 0 when None.
+      aspiration_types: 0 simple, 1 sequence, 2 cup emptied (`at`). 0 when None.
       minimum_traverse_height_end: tip bottom height at the end. `default_minimum_traverse_height`
         when None.
 
@@ -5824,7 +5826,7 @@ class Pipettes:
     try:
       await self._unchecked_fw_aspirate(
         tip_pattern=pattern,
-        aspiration_type=[0] * n,
+        aspiration_type=aspiration_types or [0] * n,
         x_positions=xs,
         y_positions=ys,
         minimum_traverse_height_start=traverse_start,
@@ -6037,6 +6039,7 @@ class Pipettes:
     pull_out_distances_transport_air: Optional[Sequence[float]] = None,
     transport_air_volumes: Optional[Sequence[float]] = None,
     limit_curve_indices: Optional[Sequence[int]] = None,
+    aspiration_types: Optional[Sequence[int]] = None,
     minimum_traverse_height_start: Optional[float] = None,
     minimum_traverse_height_during: Optional[float] = None,
     minimum_traverse_height_end: Optional[float] = None,
@@ -6109,6 +6112,9 @@ class Pipettes:
         10.0 when None.
       transport_air_volumes: air drawn after the liquid, in uL. The class's, else 0.0, when None.
       limit_curve_indices: TADM limit curve, 0 for none, per container. 0 when None.
+      aspiration_types: the firmware's aspiration type per container: 0 simple, 1 sequence (a
+        consecutive aspiration, no blow-out air again), 2 cup emptied (no error when the
+        container holds less than asked). 0 when None.
       minimum_traverse_height_start: raise of every low channel before the first batch, in mm.
         `default_minimum_traverse_height` when None.
       minimum_traverse_height_during: the same between batches, and each batch's end height.
@@ -6202,6 +6208,7 @@ class Pipettes:
         "pull_out_distances_transport_air", pull_out_distances_transport_air, n
       ),
       "limit_curve_indices": per_container("limit_curve_indices", limit_curve_indices, n),
+      "aspiration_types": per_container("aspiration_types", aspiration_types, n),
       "settling_times": by_class("settling_times", settling_times),
       "swap_speeds": by_class("swap_speeds", swap_speeds),
       "transport_air_volumes": by_class("transport_air_volumes", transport_air_volumes),

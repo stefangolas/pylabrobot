@@ -3454,6 +3454,13 @@ class TestAspirateInSimulation(_SimulatedPlateWithWater):
     bottoms = [await self.pipettes.request_tool_bottom_z_position(channel) for channel in (0, 1)]
     self.assertEqual(bottoms, [self.pipettes.default_minimum_traverse_height] * 2)
 
+  async def test_the_aspiration_type_is_sent_per_container(self):
+    sent = self._record_aspirations()
+    await self.pipettes.aspirate(self.wells[:2], [50.0, 20.0])
+    await self.pipettes.aspirate(self.wells[2:4], [50.0, 20.0], aspiration_types=[2, 1])
+    self.assertTrue(sent[0].startswith("C0ASat0 0"), sent[0])
+    self.assertTrue(sent[1].startswith("C0ASat2 1"), sent[1])
+
   async def test_the_pistons_stand_at_what_they_drew(self):
     # Initialization read them once already.
     self.assertEqual(self.pipettes.piston_positions, [0.0] * 8)
