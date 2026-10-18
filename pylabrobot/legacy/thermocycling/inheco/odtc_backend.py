@@ -158,15 +158,10 @@ class ExperimentalODTCBackend(ThermocyclerBackend):
       f"</MethodSet>"
     )
 
-    ps = ET.Element("ParameterSet")
-    pm = ET.SubElement(ps, "Parameter", name="MethodsXML")
-    ET.SubElement(pm, "String").text = methods_xml
-    params_xml = ET.tostring(ps, encoding="unicode")
-
     await self.stop_method()
     await self._wait_for_idle()
 
-    await self._sila_interface.send_command("SetParameters", paramsXML=params_xml)
+    await self.upload_method_set(methods_xml)
     await self._sila_interface.send_command("ExecuteMethod", methodName=method_name)
 
   # -------------------------------------------------------------------------
@@ -359,17 +354,29 @@ class ExperimentalODTCBackend(ThermocyclerBackend):
       **kwargs,
     )
 
-    ps = ET.Element("ParameterSet")
-    pm = ET.SubElement(ps, "Parameter", name="MethodsXML")
-    ET.SubElement(pm, "String").text = method_xml
-    params_xml = ET.tostring(ps, encoding="unicode")
-
     print("[ODTC] Uploading MethodSet...")
-    await self._sila_interface.send_command("SetParameters", paramsXML=params_xml)
+    await self.upload_method_set(method_xml)
 
     print(f"[ODTC] Executing method '{method_name}'")
+    await self.execute_method(method_name)
+
+  async def upload_method_set(self, method_set_xml: str):
+    """Store the methods of a MethodSet XML document on the device (SetParameters, MethodsXML),
+    such as one written by Inheco's method editor; they then run by name with `execute_method`."""
+    ps = ET.Element("ParameterSet")
+    pm = ET.SubElement(ps, "Parameter", name="MethodsXML")
+    ET.SubElement(pm, "String").text = method_set_xml
+    params_xml = ET.tostring(ps, encoding="unicode")
+    await self._sila_interface.send_command("SetParameters", paramsXML=params_xml)
+
+  async def execute_method(self, method_name: str, priority: Optional[int] = None):
+    """Run a method stored on the device, by name, and return when it ends. `priority` goes to
+    SiLA's ExecuteMethod (Hamilton's NGSStar passes 10000 to cut a PreMethod's pre-heating short)."""
+    kwargs: Dict[str, Any] = {"methodName": method_name}
+    if priority is not None:
+      kwargs["priority"] = priority
     try:
-      await self._sila_interface.send_command("ExecuteMethod", methodName=method_name)
+      await self._sila_interface.send_command("ExecuteMethod", **kwargs)
     except SiLAError as e:
       if e.code == 12:  # SuccessWithWarning
         print(f"[ODTC Warning] {e.message}")
