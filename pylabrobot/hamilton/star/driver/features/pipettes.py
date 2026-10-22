@@ -6047,6 +6047,7 @@ class Pipettes:
     minimum_traverse_height_during: Optional[float] = None,
     minimum_traverse_height_end: Optional[float] = None,
     x_grouping_tolerance: Optional[float] = None,
+    aspirate_positions_above_z_touch_off: Optional[Sequence[float]] = None,
     firmware_lld: Optional[bool] = None,
     lld_search_heights: Optional[Sequence[float]] = None,
   ) -> None:
@@ -6135,6 +6136,8 @@ class Pipettes:
         when None.
       lld_search_heights: where each firmware search starts, in mm on the deck. As the driver's
         own search starts when None.
+      aspirate_positions_above_z_touch_off: aspiration height above a Z touch, in mm, per
+        container. 0.0 when None.
 
     Raises:
       ValueError: An argument out of range, lists that do not match, both or neither of `volumes`
@@ -6224,6 +6227,9 @@ class Pipettes:
         "pull_out_distances_transport_air", pull_out_distances_transport_air, n
       ),
       "limit_curve_indices": per_container("limit_curve_indices", limit_curve_indices, n),
+      "aspirate_positions_above_z_touch_off": per_container(
+        "aspirate_positions_above_z_touch_off", aspirate_positions_above_z_touch_off, n
+      ),
       "aspiration_types": per_container("aspiration_types", aspiration_types, n),
       "settling_times": by_class("settling_times", settling_times),
       "swap_speeds": by_class("swap_speeds", swap_speeds),
@@ -6903,6 +6909,7 @@ class Pipettes:
     minimum_traverse_height_during: Optional[float] = None,
     minimum_traverse_height_end: Optional[float] = None,
     x_grouping_tolerance: Optional[float] = None,
+    dispense_positions_above_z_touch_off: Optional[Sequence[float]] = None,
     firmware_lld: Optional[bool] = None,
     lld_search_heights: Optional[Sequence[float]] = None,
   ) -> None:
@@ -6983,6 +6990,8 @@ class Pipettes:
         allowed (the surface used without LLD, `zl`). `default_firmware_lld` when None.
       lld_search_heights: where each firmware search starts, in mm on the deck. As the driver's
         own search starts when None.
+      dispense_positions_above_z_touch_off: dispense height above a Z touch, in mm, per container.
+        0.0 when None.
 
     Raises:
       ValueError: An argument out of range, lists that do not match, both or neither of `volumes`
@@ -7078,6 +7087,9 @@ class Pipettes:
         "pull_out_distances_transport_air", pull_out_distances_transport_air, n
       ),
       "limit_curve_indices": per_container("limit_curve_indices", limit_curve_indices, n),
+      "dispense_positions_above_z_touch_off": per_container(
+        "dispense_positions_above_z_touch_off", dispense_positions_above_z_touch_off, n
+      ),
       "settling_times": by_class("settling_times", settling_times),
       "swap_speeds": by_class("swap_speeds", swap_speeds),
     }
