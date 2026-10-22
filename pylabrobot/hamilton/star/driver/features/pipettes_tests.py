@@ -3717,6 +3717,32 @@ class TestAspirateInSimulation(_SimulatedPlateWithWater):
     self.assertAlmostEqual(self.wells[0].tracker.get_used_volume(), 70.0, delta=2.0)
     self.assertAlmostEqual(self.wells[1].tracker.get_used_volume(), 80.0, delta=2.0)
 
+  async def test_firmware_lld_leaves_the_search_to_the_firmware(self):
+    # As Venus sends it: one C0AS, lm1, the search from the height given, zl from the liquid
+    # height, from the traverse height; no search by the driver, the tracker booking the volume.
+    sent = self._record_aspirations("P1ZL", "P2ZL", "C0RL")
+    bottoms = [w.get_location_wrt(self.deck, "c", "c", "cavity_bottom").z for w in self.wells[:2]]
+    before = [w.tracker.get_used_volume() for w in self.wells[:2]]
+    await self.pipettes.aspirate(
+      self.wells[:2],
+      [50.0, 20.0],
+      lld_mode=Pipettes.LLDMode.CAPACITIVE,
+      firmware_lld=True,
+      liquid_heights=[5.0, 5.0],
+      lld_search_heights=[b + 31.0 for b in bottoms],
+      immersion_depths=[2.0, 2.0],
+    )
+    self.assertEqual([c[:4] for c in sent], ["C0AS"])
+    self.assertIn("lm1 1", sent[0])
+    self.assertIn("th2450", sent[0])
+    lp = " ".join(f"{round((b + 31.0) * 10):04}" for b in bottoms)
+    zl = " ".join(f"{round((b + 5.0) * 10):04}" for b in bottoms)
+    self.assertIn(f"lp{lp}", sent[0])
+    self.assertIn(f"zl{zl}", sent[0])
+    self.assertIn("ip0020 0020", sent[0])
+    self.assertAlmostEqual(self.wells[0].tracker.get_used_volume(), before[0] - 50.0, delta=0.01)
+    self.assertAlmostEqual(self.wells[1].tracker.get_used_volume(), before[1] - 20.0, delta=0.01)
+
   async def test_a_container_without_height_volume_functions_is_refused_before_any_batch(self):
     for row in "EFGH":
       self.plate.get_well(f"{row}1").tracker.set_volume(100.0)

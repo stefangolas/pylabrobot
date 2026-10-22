@@ -426,6 +426,9 @@ class Pipettes:
   default_z_current_limit: int = 3
   # Height the channels travel at when a command names none, in mm.
   default_minimum_traverse_height: float = 245.0
+  # Whether aspirate and dispense leave CAPACITIVE and PRESSURE to the firmware, as Venus does,
+  # when a call names none; False searches with the driver's own moves first.
+  default_firmware_lld: bool = False
   # Containers within this X distance are probed in one batch, in mm.
   default_x_grouping_tolerance: float = 0.1
   # How far above a container's top a liquid search starts, in mm: enough to clear a brim-full
@@ -6044,6 +6047,8 @@ class Pipettes:
     minimum_traverse_height_during: Optional[float] = None,
     minimum_traverse_height_end: Optional[float] = None,
     x_grouping_tolerance: Optional[float] = None,
+    firmware_lld: Optional[bool] = None,
+    lld_search_heights: Optional[Sequence[float]] = None,
   ) -> None:
     """Draw liquid from each container with a channel's tip.
 
@@ -6123,13 +6128,20 @@ class Pipettes:
         when None.
       x_grouping_tolerance: X distance within which containers share a batch, in mm.
         `default_x_grouping_tolerance` when None.
+      firmware_lld: leave CAPACITIVE and PRESSURE to the firmware, as Venus does: no search by
+        the driver, the mode in the command (`lm`), the search from `lld_search_heights`, the
+        blow-out air in the command, `liquid_heights` allowed (the surface used without LLD,
+        `zl`). The tracker books the volumes; no surface is measured. `default_firmware_lld`
+        when None.
+      lld_search_heights: where each firmware search starts, in mm on the deck. As the driver's
+        own search starts when None.
 
     Raises:
       ValueError: An argument out of range, lists that do not match, both or neither of `volumes`
         and `piston_volumes`, a class beside `piston_volumes`, no class for a channel's tip, a
-        liquid height beside an LLD mode, a piston or a tip without room for its draws from where
-        it stands, or auto surface following beside a distance, under OFF without a liquid height,
-        or over a surface outside the container's height-volume data.
+        liquid height beside an LLD mode (unless `firmware_lld`), a piston or a tip without room
+        for its draws from where it stands, or auto surface following beside a distance, under OFF
+        without a liquid height, or over a surface outside the container's height-volume data.
       RuntimeError: A channel without a tip, or without the firmware a ZTOUCH needs, no deck, a
         container without height-volume functions under CAPACITIVE, PRESSURE or auto surface
         following, no liquid found where the channels searched, or no floor met where they
@@ -6162,6 +6174,10 @@ class Pipettes:
     searched = [
       job for job in range(n) if modes[job] in (self.LLDMode.CAPACITIVE, self.LLDMode.PRESSURE)
     ]
+    # Under firmware LLD the command searches: the driver's own search is skipped for those jobs.
+    firmware = self.default_firmware_lld if firmware_lld is None else firmware_lld
+    by_firmware = searched if firmware else []
+    searched = [] if firmware else searched
     check_volume_arguments(volumes, piston_volumes, hamilton_liquid_classes, "drawn")
 
     channel_of = self._get_channel_of_each_container(n, use_channels)
@@ -6219,8 +6235,10 @@ class Pipettes:
     pre_wetting = per_container_settings["pre_wetting_volumes"] or [0.0] * n
     # The command draws its blow-out air first, before the descent. A searched or touched job
     # starts with its tip on the liquid, so its air is drawn beforehand, at the traverse height.
+    # A firmware search draws it in the command, as the tip comes down.
     air_in_command = [
-      blow_out_air[job] if modes[job] == self.LLDMode.OFF else 0.0 for job in range(n)
+      blow_out_air[job] if modes[job] == self.LLDMode.OFF or job in by_firmware else 0.0
+      for job in range(n)
     ]
     air_beforehand = [blow_out_air[job] - air_in_command[job] for job in range(n)]
     per_container_settings["blow_out_air_volumes"] = air_in_command
@@ -6260,9 +6278,19 @@ class Pipettes:
     given_floors = per_container(
       "minimum_allowed_z_positions_during", minimum_allowed_z_positions_during, n
     )
+    # A firmware search's liquid height is the surface the command takes without LLD (`zl`).
     floors, sent_floors, tops, searches, surfaces = self._get_pipetting_heights(
-      deck, containers, resource_offsets, given_floors, heights, modes, searched
+      deck,
+      containers,
+      resource_offsets,
+      given_floors,
+      heights,
+      [self.LLDMode.OFF if job in by_firmware else modes[job] for job in range(n)],
+      searched,
     )
+    given_searches = per_container("lld_search_heights", lld_search_heights, n)
+    if given_searches is not None:
+      searches = [round(z, 2) for z in given_searches]
     tracking = does_volume_tracking()
     following = per_container("surface_following_distances", surface_following_distances, n)
     _, overhangs, batches = await self._prepare_batched(
@@ -6346,7 +6374,7 @@ class Pipettes:
       raised_to = start if batch is batches[0] else during
       kwargs_to_start_from_current_positions: Dict[str, Any] = {
         "minimum_traverse_height_start": min(surfaces[job] for job in down) if down else raised_to,
-        "lld_modes": [self.LLDMode.OFF] * len(jobs),
+        "lld_modes": [modes[job] if job in by_firmware else self.LLDMode.OFF for job in jobs],
       }
       # The surfaces the tips start from are known only now, after the batch's search.
       here = [containers[job] for job in jobs]
@@ -6875,6 +6903,8 @@ class Pipettes:
     minimum_traverse_height_during: Optional[float] = None,
     minimum_traverse_height_end: Optional[float] = None,
     x_grouping_tolerance: Optional[float] = None,
+    firmware_lld: Optional[bool] = None,
+    lld_search_heights: Optional[Sequence[float]] = None,
   ) -> None:
     """Dispense liquid into each container from a channel's tip.
 
@@ -6948,14 +6978,19 @@ class Pipettes:
         when None.
       x_grouping_tolerance: X distance within which containers share a batch, in mm.
         `default_x_grouping_tolerance` when None.
+      firmware_lld: leave CAPACITIVE to the firmware, as Venus does: no search by the driver,
+        the mode in the command (`lm`), the search from `lld_search_heights`, `liquid_heights`
+        allowed (the surface used without LLD, `zl`). `default_firmware_lld` when None.
+      lld_search_heights: where each firmware search starts, in mm on the deck. As the driver's
+        own search starts when None.
 
     Raises:
       ValueError: An argument out of range, lists that do not match, both or neither of `volumes`
         and `piston_volumes`, a class beside `piston_volumes`, no class for a channel's tip, a
-        liquid height beside an LLD mode, a pressure or dual LLD mode, a piston without the travel
-        for its dispenses, a container without room for them, or auto surface following beside a
-        distance, under OFF without a liquid height, or over a surface outside the container's
-        height-volume data.
+        liquid height beside an LLD mode (unless `firmware_lld`), a pressure or dual LLD mode, a
+        piston without the travel for its dispenses, a container without room for them, or auto
+        surface following beside a distance, under OFF without a liquid height, or over a surface
+        outside the container's height-volume data.
       RuntimeError: A channel without a tip, or without the firmware a ZTOUCH needs, no deck, a
         container without height-volume functions under CAPACITIVE or auto surface following, no
         liquid found where the channels searched, a container the search found without the room,
@@ -6988,6 +7023,10 @@ class Pipettes:
         )
     touched = [job for job in range(n) if modes[job] == self.LLDMode.ZTOUCH]
     searched = [job for job in range(n) if modes[job] == self.LLDMode.CAPACITIVE]
+    # Under firmware LLD the command searches: the driver's own search is skipped for those jobs.
+    firmware = self.default_firmware_lld if firmware_lld is None else firmware_lld
+    by_firmware = searched if firmware else []
+    searched = [] if firmware else searched
     check_volume_arguments(volumes, piston_volumes, hamilton_liquid_classes, "pushed out")
 
     channel_of = self._get_channel_of_each_container(n, use_channels)
@@ -7077,9 +7116,19 @@ class Pipettes:
     given_floors = per_container(
       "minimum_allowed_z_positions_during", minimum_allowed_z_positions_during, n
     )
+    # A firmware search's liquid height is the surface the command takes without LLD (`zl`).
     floors, sent_floors, tops, searches, surfaces = self._get_pipetting_heights(
-      deck, containers, resource_offsets, given_floors, heights, modes, searched
+      deck,
+      containers,
+      resource_offsets,
+      given_floors,
+      heights,
+      [self.LLDMode.OFF if job in by_firmware else modes[job] for job in range(n)],
+      searched,
     )
+    given_searches = per_container("lld_search_heights", lld_search_heights, n)
+    if given_searches is not None:
+      searches = [round(z, 2) for z in given_searches]
     tracking = does_volume_tracking()
     following = per_container("surface_following_distances", surface_following_distances, n)
     _, overhangs, batches = await self._prepare_batched(
@@ -7149,7 +7198,7 @@ class Pipettes:
       raised_to = start if batch is batches[0] else during
       kwargs_to_start_from_current_positions: Dict[str, Any] = {
         "minimum_traverse_height_start": min(surfaces[job] for job in down) if down else raised_to,
-        "lld_modes": [self.LLDMode.OFF] * len(jobs),
+        "lld_modes": [modes[job] if job in by_firmware else self.LLDMode.OFF for job in jobs],
       }
       # The surfaces the tips start from are known only now, after the batch's search.
       here = [containers[job] for job in jobs]
