@@ -3696,6 +3696,12 @@ class TestAspirateInSimulation(_SimulatedPlateWithWater):
     self.assertIn(f"zx{round((bottom - 1.0) * 10):04}", sent[0])
     self.assertIn(f"zl{self._surface_field(self.wells[0], 0.0)}", sent[0])
 
+  async def test_a_volume_half_rounds_up_as_venus_sends_it(self):
+    # round() takes 11.25 to 11.2 (half to even); Venus sends 11.3
+    sent = self._record_aspirations()
+    await self.pipettes.aspirate(self.wells[:1], piston_volumes=[11.25])
+    self.assertIn("av00113", sent[0])
+
   async def test_a_capacitive_aspiration_searches_first_and_takes_what_it_measured(self):
     sent = self._record_aspirations("P1ZL", "P2ZL", "C0RL")
     self.wells[0].tracker.set_volume(120.0)  # The model is wrong; the search will say 150 is 120.

@@ -5844,7 +5844,8 @@ class Pipettes:
         immersion_depth=[abs(tenths(v)) for v in immersion],
         immersion_depth_direction=[1 if v < 0 else 0 for v in immersion],
         surface_following_distance=[tenths(v) for v in following],
-        aspiration_volumes=[tenths(v) for v in volume],
+        # A half rounds up, as Venus sends it (`round` gives 11.25 uL as 11.2, Venus 11.3).
+        aspiration_volumes=[int(v * 10 + 0.5 + 1e-6) for v in volume],
         aspiration_speed=[tenths(v) for v in flow],
         transport_air_volume=[tenths(v) for v in transport],
         blow_out_air_volume=[tenths(v) for v in blow_out],
@@ -6846,7 +6847,8 @@ class Pipettes:
         second_section_ratio=[tenths(v) for v in section_ratio],
         minimum_traverse_height_start=traverse_start,
         minimum_z_end_position=traverse_end,
-        dispense_volumes=[tenths(v) for v in volume],
+        # A half rounds up, as Venus sends it, and as the aspiration drew it.
+        dispense_volumes=[int(v * 10 + 0.5 + 1e-6) for v in volume],
         dispense_speed=[tenths(v) for v in flow],
         cut_off_speed=[tenths(v) for v in cut_off],
         stop_back_volume=[tenths(v) for v in stop_back],
