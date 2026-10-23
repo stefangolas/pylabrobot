@@ -5844,8 +5844,7 @@ class Pipettes:
         immersion_depth=[abs(tenths(v)) for v in immersion],
         immersion_depth_direction=[1 if v < 0 else 0 for v in immersion],
         surface_following_distance=[tenths(v) for v in following],
-        # A half rounds up, as Venus sends it (`round` gives 11.25 uL as 11.2, Venus 11.3).
-        aspiration_volumes=[int(v * 10 + 0.5 + 1e-6) for v in volume],
+        aspiration_volumes=[tenths(v) for v in volume],
         aspiration_speed=[tenths(v) for v in flow],
         transport_air_volume=[tenths(v) for v in transport],
         blow_out_air_volume=[tenths(v) for v in blow_out],
@@ -6048,7 +6047,6 @@ class Pipettes:
     minimum_traverse_height_during: Optional[float] = None,
     minimum_traverse_height_end: Optional[float] = None,
     x_grouping_tolerance: Optional[float] = None,
-    aspirate_positions_above_z_touch_off: Optional[Sequence[float]] = None,
     firmware_lld: Optional[bool] = None,
     lld_search_heights: Optional[Sequence[float]] = None,
   ) -> None:
@@ -6137,8 +6135,6 @@ class Pipettes:
         when None.
       lld_search_heights: where each firmware search starts, in mm on the deck. As the driver's
         own search starts when None.
-      aspirate_positions_above_z_touch_off: aspiration height above a Z touch, in mm, per
-        container. 0.0 when None.
 
     Raises:
       ValueError: An argument out of range, lists that do not match, both or neither of `volumes`
@@ -6228,9 +6224,6 @@ class Pipettes:
         "pull_out_distances_transport_air", pull_out_distances_transport_air, n
       ),
       "limit_curve_indices": per_container("limit_curve_indices", limit_curve_indices, n),
-      "aspirate_positions_above_z_touch_off": per_container(
-        "aspirate_positions_above_z_touch_off", aspirate_positions_above_z_touch_off, n
-      ),
       "aspiration_types": per_container("aspiration_types", aspiration_types, n),
       "settling_times": by_class("settling_times", settling_times),
       "swap_speeds": by_class("swap_speeds", swap_speeds),
@@ -6847,8 +6840,7 @@ class Pipettes:
         second_section_ratio=[tenths(v) for v in section_ratio],
         minimum_traverse_height_start=traverse_start,
         minimum_z_end_position=traverse_end,
-        # A half rounds up, as Venus sends it, and as the aspiration drew it.
-        dispense_volumes=[int(v * 10 + 0.5 + 1e-6) for v in volume],
+        dispense_volumes=[tenths(v) for v in volume],
         dispense_speed=[tenths(v) for v in flow],
         cut_off_speed=[tenths(v) for v in cut_off],
         stop_back_volume=[tenths(v) for v in stop_back],
@@ -6911,7 +6903,6 @@ class Pipettes:
     minimum_traverse_height_during: Optional[float] = None,
     minimum_traverse_height_end: Optional[float] = None,
     x_grouping_tolerance: Optional[float] = None,
-    dispense_positions_above_z_touch_off: Optional[Sequence[float]] = None,
     firmware_lld: Optional[bool] = None,
     lld_search_heights: Optional[Sequence[float]] = None,
   ) -> None:
@@ -6992,8 +6983,6 @@ class Pipettes:
         allowed (the surface used without LLD, `zl`). `default_firmware_lld` when None.
       lld_search_heights: where each firmware search starts, in mm on the deck. As the driver's
         own search starts when None.
-      dispense_positions_above_z_touch_off: dispense height above a Z touch, in mm, per container.
-        0.0 when None.
 
     Raises:
       ValueError: An argument out of range, lists that do not match, both or neither of `volumes`
@@ -7089,9 +7078,6 @@ class Pipettes:
         "pull_out_distances_transport_air", pull_out_distances_transport_air, n
       ),
       "limit_curve_indices": per_container("limit_curve_indices", limit_curve_indices, n),
-      "dispense_positions_above_z_touch_off": per_container(
-        "dispense_positions_above_z_touch_off", dispense_positions_above_z_touch_off, n
-      ),
       "settling_times": by_class("settling_times", settling_times),
       "swap_speeds": by_class("swap_speeds", swap_speeds),
     }
