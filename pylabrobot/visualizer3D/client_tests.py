@@ -27,6 +27,7 @@ BOUNDARIES = {
   "resize": "the viewport changing shape",
   "atBoundary": "a call from outside the page",
   "hideSelectionLater": "a timer the page set for itself, to take the selection box down",
+  "initLook": "the look's own setup: the controls' settle timer, and the shadow rig's first frame",
   None: "the input listeners - clicks and keys anywhere, the pointer over the viewport, a crossing"
   " into a row that raises a hover box - and the camera's own change event",
 }

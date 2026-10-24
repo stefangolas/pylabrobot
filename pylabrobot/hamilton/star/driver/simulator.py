@@ -50,6 +50,7 @@ from pylabrobot.hamilton.star.driver.features.pipettes import (
   PipetteConfiguration,
   Pipettes,
   PipettesConfiguration,
+  core_tool_face_distance,
 )
 from pylabrobot.hamilton.star.driver.features.x_arm import XArm
 from pylabrobot.hamilton.star.driver.master import STARDriver
@@ -1640,15 +1641,21 @@ class SimulatedCoreGrippers(_Simulated, CoreGrippers):
       descend_to=descend_to,
     )
 
-  @staticmethod
-  def _held_pair_ys(y_position: int, width: int) -> Tuple[int, int]:
-    """The back and front channel's Y either side of a held plate's centre, a jaw width apart.
+  def _held_pair_ys(self, y_position: int, width: int) -> Tuple[int, int]:
+    """The back and front channel's Y either side of a held plate's centre: the jaws' faces a
+    jaw width apart, and each channel the tool's face distance outside its jaw (as the viewer's
+    motion draws them; the firmware's `yo`/`yg` are the jaws' width, not the channels').
 
     Args:
       y_position: the plate's centre along Y, in tenths of a millimetre.
-      width: how far apart the jaws stand, in tenths of a millimetre.
+      width: how far apart the jaws' faces stand, in tenths of a millimetre.
     """
-    return y_position + width // 2, y_position - width // 2
+    tool = self._front_tool()
+    face = (
+      round(core_tool_face_distance(tool) * 10) if isinstance(tool, HamiltonCoreGripperTool) else 0
+    )
+    half = width // 2 + face
+    return y_position + half, y_position - half
 
   async def _unchecked_fw_pick_up_tools(
     self,

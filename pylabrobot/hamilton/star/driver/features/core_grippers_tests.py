@@ -6,6 +6,7 @@ from pylabrobot.hamilton.protocol.text.framing import assemble_command
 from pylabrobot.hamilton.star.conftest import BARE_X_ARM
 from pylabrobot.hamilton.star.device import STAR
 from pylabrobot.hamilton.star.driver.errors import HardwareError, STARFirmwareError
+from pylabrobot.hamilton.star.driver.features.pipettes import core_tool_face_distance
 from pylabrobot.hamilton.star.driver.features.x_arm_tests import RECORDED_DEVICE, declaring
 from pylabrobot.hamilton.star.driver.simulator import STARSimulationDriver
 from pylabrobot.resources.azenta.plates import azenta_96_wellplate_200uL_Vb_4titudeframestar
@@ -520,8 +521,12 @@ class TestSimulatedChannelPositions(unittest.IsolatedAsyncioTestCase):
     back, front = self.pair()
     self.assertAlmostEqual(back.x, centre.x, places=1)
     self.assertAlmostEqual((back.y + front.y) / 2, centre.y, places=1)
-    # Closed to its width less 3 mm, the default squeeze either side.
-    self.assertAlmostEqual(back.y - front.y, self.plate.get_absolute_size_y() - 3.0, places=0)
+    # The jaws closed to its width less 3 mm, the default squeeze; each channel the tool's face
+    # distance outside its jaw.
+    face = core_tool_face_distance(self.grippers._front_tool())
+    self.assertAlmostEqual(
+      back.y - front.y, self.plate.get_absolute_size_y() - 3.0 + 2 * face, places=0
+    )
     held = self.plate.get_location_wrt(self.star.deck, "c", "c", "b")
     self.assertAlmostEqual(held.x, centre.x, places=1)
     self.assertAlmostEqual(held.y, centre.y, places=1)

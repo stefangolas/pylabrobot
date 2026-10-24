@@ -8,20 +8,35 @@ import { ViewHelper } from "three/addons/ViewHelper.js";
 
 import { DEG, SKY_LIGHT } from "./constants.js";
 import { initFrame, invalidate } from "./frame.js";
+import { LIGHT, LOOK_REAL } from "./options.js";
 
 export const viewportEl = document.getElementById("viewport");
 // No `preserveDrawingBuffer`: this three never reads it, and a GIF frame is captured through a
 // render target rather than off the canvas.
+// Multisampling only below this many device pixels per CSS pixel. Above it the pixels are small
+// enough that an edge barely stairs, and four samples of each are most of what a frame costs: at
+// 1.5x, orbiting the deck took a median 35 ms a frame with it and 14-21 ms without. `?aa=1` or
+// `?aa=0` decides instead. The realistic look always multisamples, and draws at one device pixel per
+// CSS pixel (frame.js): multisampling shades each pixel once and smooths its edges from four
+// samples, for far less than drawing four times the pixels - and without it, a high-DPI screen whose
+// frames slowed was stepped down to one pixel per CSS pixel with nothing smoothing its edges: the
+// stairs and crawl of a PS1 game.
+const MSAA_BELOW_DPR = 1.5;
+const askedAA = new URLSearchParams(location.search).get("aa");
 export const renderer = new THREE.WebGPURenderer({
-  antialias: true,
+  antialias:
+    askedAA === null ? LOOK_REAL || window.devicePixelRatio < MSAA_BELOW_DPR : askedAA !== "0",
   // Software WebGPU loses its device within a second of drawing; software WebGL2 keeps drawing.
   // boot.js has measured which this browser is before this runs.
-  forceWebGL: window.plrCapability?.software === true,
+  // `?backend=webgl` asks for WebGL2 on any machine, to compare the two.
+  forceWebGL:
+    window.plrCapability?.software === true ||
+    new URLSearchParams(location.search).get("backend") === "webgl",
 });
 const _tInit = performance.now();
 await renderer.init();
 export const rendererInitMs = performance.now() - _tInit;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(LOOK_REAL ? 1 : Math.min(window.devicePixelRatio, 2));
 // No tone mapping: it compresses the top of the range, which turns a pure white background grey.
 // Over-exposure is handled by budgeting the lights instead.
 renderer.toneMapping = THREE.NoToneMapping;
@@ -67,12 +82,12 @@ controls.mouseButtons = {
 // A key off to one side rather than straight down the lens: dead-on light flattens as surely as no
 // light at all, because every face pointing at you gets the same amount of it.
 const lights = new THREE.Group();
-const skyLight = new THREE.HemisphereLight(0xffffff, 0xeceff1, SKY_LIGHT);
+export const skyLight = new THREE.HemisphereLight(0xffffff, 0xeceff1, SKY_LIGHT * LIGHT);
 lights.add(skyLight);
-const keyLight = new THREE.DirectionalLight(0xffffff, 0.9);
+export const keyLight = new THREE.DirectionalLight(0xffffff, 0.9 * LIGHT);
 keyLight.position.set(-0.6, 0.5, 1);
 lights.add(keyLight);
-const fillLight = new THREE.DirectionalLight(0xffffff, 0.45);
+export const fillLight = new THREE.DirectionalLight(0xffffff, 0.45 * LIGHT);
 fillLight.position.set(0.8, -0.4, 0.6);
 lights.add(fillLight);
 camera.add(lights);
@@ -84,7 +99,7 @@ view.add(camera);
 try {
   const pmrem = new THREE.PMREMGenerator(renderer);
   view.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  view.environmentIntensity = 0.45;
+  view.environmentIntensity = 0.45 * LIGHT;
   // Kept, so a quality level that takes the lighting away can give it back.
   view.userData.roomEnvironment = view.environment;
   pmrem.dispose();

@@ -223,6 +223,34 @@ class DecoderTests(unittest.IsolatedAsyncioTestCase):
     self.assertGreater(following["follow_speed"], 0.0)
     self.assertAlmostEqual(following["pull_out"] - following["leave"], 10.0, places=2)
 
+  async def test_a_dispense_goes_down_follows_the_surface_up_and_dwells(self):
+    sent: List[Dict[str, Any]] = []
+    listen = self.star.driver.motion_listener
+
+    async def keep(module: str, command: str, params: Dict[str, Any]) -> None:
+      if module + command == "C0DS":
+        sent.append(dict(params))
+      await listen(module, command, params)
+
+    self.star.driver.motion_listener = keep
+    await self.star.pipettes.pick_up_tips([self.rack.get_item("A8")])
+    await self.star.pipettes.aspirate([self.source.get_item("A8")], [50.0])
+    await self.star.pipettes.dispense([self.source.get_item("B8")], [50.0])
+    dispense = next(r for r in self.requests if r["kind"] == "dispense")
+    channel = dispense["channels"][0]
+    self.assertLess(channel["down"], dispense["traverse"][0]["z"])
+    self.assertGreater(dispense["dwell"], 0.0)
+    self.assertEqual(dispense["fixed"], motion.DISPENSE_FIXED)
+
+    params = sent[-1]
+    floor = [f"{int(z) - 200:04}" for z in params["zl"]]
+    changed = {"zx": floor, "ip": ["0020"], "it": ["0"], "fp": ["0040"]}
+    following = star_motion(self.star.driver, "C0", "DS", {**params, **changed})
+    assert following is not None
+    followed = following["channels"][0]
+    self.assertAlmostEqual(followed["follow"] - followed["down"], 4.0, places=2)
+    self.assertGreater(followed["follow_speed"], 0.0)
+
   async def test_a_read_moves_nothing(self):
     self.assertIsNone(star_motion(self.star.driver, "C0", "RY", {}))
     self.assertIsNone(star_motion(self.star.driver, "C0", "XX", {}))

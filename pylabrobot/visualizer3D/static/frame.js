@@ -3,16 +3,14 @@
 
 import * as THREE from "three";
 import {
-  QUALITY_FAST_MS,
-  QUALITY_HOLD_MS,
   QUALITY_LEVELS,
-  QUALITY_RECOVER_MS,
   QUALITY_SETTLE_MS,
   QUALITY_SLOW_MS,
   QUALITY_WARMUP_MS,
   SKY_LIGHT,
   SKY_LIGHT_WITHOUT_ENVIRONMENT,
 } from "./constants.js";
+import { LIGHT, LOOK_REAL } from "./options.js";
 
 // What the loop draws with and where. Given once by the page, before anything asks for a frame.
 
@@ -33,9 +31,7 @@ export const qualityPinned = new URLSearchParams(location.search).get("quality")
 let quality = qualityPinned === "low" ? QUALITY_LEVELS - 1 : 0;
 let frameCostAverage = 0;
 let slowSince = null;
-let fastSince = null;
 let sceneCameAt = performance.now();
-const demotedAt = new Map(); // level -> when it was last found too slow
 
 // What a frame runs, in the order the page registered it. A mover is given the seconds since the
 // last frame and says whether it is still moving; a preparer works out what this frame draws;
@@ -56,13 +52,34 @@ export function afterDraw(finisher) {
   finishers.push(finisher);
 }
 
+// What draws a frame: the renderer itself, unless a look draws through a pipeline of its own
+// (look.js: anti-aliasing after the scene pass). Given the camera the frame is
+// drawn from, it says whether it drew; one that did not leaves the renderer to.
+let drawer = null;
+export function drawWith(draw) {
+  drawer = draw;
+}
+
+/** Draw one frame from `camera` as the page does: through the look's pipeline where it has one. */
+export function drawNow(camera) {
+  if (!drawer?.(camera)) renderer.render(view, camera);
+}
+
 export function applyQuality(level) {
   quality = Math.max(0, Math.min(QUALITY_LEVELS - 1, level));
-  renderer.setPixelRatio(quality >= 1 ? 1 : Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(quality >= 1 || LOOK_REAL ? 1 : Math.min(window.devicePixelRatio, 2));
   // The drawing buffer follows the pixel ratio only through setSize.
   renderer.setSize(viewportEl.clientWidth || 1, viewportEl.clientHeight || 1);
-  view.environment = quality >= 2 ? null : (view.userData.roomEnvironment ?? null);
-  skyLight.intensity = view.environment ? SKY_LIGHT : SKY_LIGHT_WITHOUT_ENVIRONMENT;
+  // The lowest level drops the reflections, which recompiles every lit pipeline - a burst of some
+  // 180 shader programs, and a hitch of seconds on a slow machine. A look that relies on them for
+  // its finishes (look.js: metal) keeps them; the pixel ratio above is the step that saves time.
+  const dropReflections = quality >= 2 && !view.userData.keepEnvironment;
+  view.environment = dropReflections ? null : (view.userData.roomEnvironment ?? null);
+  // A look that dims the sky (look.js) says by how much; the reset keeps it, where it had put the
+  // technical look's full sky back - brightening the page mid-load and washing out the shadows.
+  const share = skyLight.userData.lookShare ?? 1;
+  skyLight.intensity =
+    (view.environment ? SKY_LIGHT : SKY_LIGHT_WITHOUT_ENVIRONMENT) * LIGHT * share;
 }
 
 export function initFrame(deps) {
@@ -112,35 +129,25 @@ function updateStats() {
   drawStats(`${String(fps)} fps`);
 }
 
-// Read after each drawn frame. Down after slow frames have settled, up after fast ones have, and
-// never back into a level found slow within QUALITY_HOLD_MS.
+// Read after each drawn frame. Down after slow frames have settled, and never back up on its own.
+// It used to step up after a few seconds of fast frames and down again once those proved slow: each
+// step reallocates the drawing buffer, and a step past the environment recompiles every lit
+// pipeline, so a machine near the line saw a stutter every time it swung. A reload starts at the
+// top again.
 function adaptQuality(frameMs) {
   if (qualityPinned !== null) return;
   if (performance.now() - sceneCameAt < QUALITY_WARMUP_MS) return;
   frameCostAverage = frameCostAverage === 0 ? frameMs : frameCostAverage * 0.9 + frameMs * 0.1;
   const now = performance.now();
   if (frameCostAverage > QUALITY_SLOW_MS) {
-    fastSince = null;
     slowSince ??= now;
     if (now - slowSince >= QUALITY_SETTLE_MS && quality < QUALITY_LEVELS - 1) {
-      demotedAt.set(quality, now);
       applyQuality(quality + 1);
       slowSince = null;
       frameCostAverage = 0;
     }
-  } else if (frameCostAverage < QUALITY_FAST_MS) {
-    slowSince = null;
-    fastSince ??= now;
-    const above = quality - 1;
-    const heldBack = above >= 0 && now - (demotedAt.get(above) ?? -Infinity) < QUALITY_HOLD_MS;
-    if (now - fastSince >= QUALITY_RECOVER_MS && above >= 0 && !heldBack) {
-      applyQuality(above);
-      fastSince = null;
-      frameCostAverage = 0;
-    }
   } else {
     slowSince = null;
-    fastSince = null;
   }
 }
 
@@ -161,7 +168,7 @@ function drawFrame() {
 
   for (const prepare of preparers) prepare();
 
-  renderer.render(view, cameraNow());
+  if (!drawer?.(cameraNow())) renderer.render(view, cameraNow());
   // What a frame costs is the longer of this thread's work and the gap since the last frame: the
   // GPU, or a rasteriser in another process, shows up only in the gap. The gap of an idle spell is
   // discarded where the loop is woken, so the first frame back is costed by its work alone.
@@ -219,5 +226,4 @@ export function sceneArrived() {
   sceneCameAt = performance.now();
   frameCostAverage = 0;
   slowSince = null;
-  fastSince = null;
 }

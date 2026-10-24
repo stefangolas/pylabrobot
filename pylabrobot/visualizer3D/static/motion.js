@@ -16,6 +16,7 @@ import { heldAt, LIDDABLE, MOVABLE, SITES, siteUnder } from "./carry.js";
 import { worldBox } from "./drawn.js";
 import { readAxis, reattach, setAxis, turnTo } from "./live.js";
 import { createPlayer } from "./motion_player.js";
+import { playbackRequest } from "./playback_options.js";
 import { modelOf, world } from "./world.js";
 
 // What each gripper holds, by name, as the page has it.
@@ -83,6 +84,7 @@ const player = createPlayer({
 // How fast motions play against the drives' own speeds: `?motion=2` twice as fast, `?motion=0`
 // not at all - everything jumps to where it ends and the command goes straight on.
 const asked = Number(new URLSearchParams(location.search).get("motion") ?? 1);
+const pauseScale = Number(new URLSearchParams(location.search).get("pauses") ?? 1);
 player.setSpeed(Number.isFinite(asked) && asked >= 0 ? asked : 1);
 
 export const stepMotion = (delta) => player.step(delta);
@@ -106,7 +108,7 @@ document.addEventListener("visibilitychange", () => {
  */
 export async function playMotion(request, done) {
   try {
-    if (world) await player.play(request);
+    if (world) await player.play(playbackRequest(request, pauseScale));
   } catch (error) {
     console.warn("a motion could not be played", error);
   } finally {

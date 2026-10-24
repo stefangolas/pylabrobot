@@ -97,6 +97,8 @@ TIP_PICKUP_DOWN_FROM = 0.82
 # coefficient only tracks protocols (it swings from +0.04 to -0.27 s with 0.1% of the data).
 ASPIRATE_FIXED = 1.879  # s
 ASPIRATE_FIXED_PER_TRANSPORT_AIR_TIME = 6.761  # s per s of transport air at the flow rate
+# A dispense's fixed time is not measured yet (HEUR): an aspiration's stands in for it.
+DISPENSE_FIXED = ASPIRATE_FIXED
 # Mixing happens at the bottom, so it adds to the dwell: its volume time, and a turnaround per cycle.
 MIX_VOLUME_TIME_FACTOR = 0.979
 MIX_PER_CYCLE = 0.557  # s
@@ -574,9 +576,15 @@ def _core_plate(frames: _Frames, command: str, params: Dict[str, Any], kind: str
     raise ValueError("a CO-RE plate command needs its CO-RE grip tool on the front channel")
   grippers = _core_grippers(frames)
   handover = grippers._handover if grippers is not None else None
-  held = handover[0] if handover else None
-  width = held.get_absolute_size_y() if held is not None else _tenths(params.get("yo", 0)) - 3.0
-  half = width / 2 + core_tool_face_distance(tool)
+  # The jaws close to `yg` on a grip and open to `yo` on a release; each channel stands the tool's
+  # face distance outside its jaw, as the simulator records them. A move keeps the span it has.
+  face = core_tool_face_distance(tool)
+  if kind == "core_grip":
+    half = _tenths(params["yg"]) / 2 + face
+  elif kind == "core_release":
+    half = _tenths(params["yo"]) / 2 + face
+  else:
+    half = (frames.current_y(back) - frames.current_y(front)) / 2
   centre_y, grip = _tenths(params["yj"]), _tenths(params["zj"])
   along = {**params, "ya": round((centre_y + half) * 10), "yb": round((centre_y - half) * 10)}
   end = _tenths(params["zj"] if kind == "core_move" else params.get("te", params["th"]))
@@ -592,6 +600,13 @@ def _core_plate(frames: _Frames, command: str, params: Dict[str, Any], kind: str
   )
   if handover and kind != "core_move":
     resource, parent, location = handover
+    if kind == "core_grip" and location is not None and parent is tool:
+      # Centred between the jaws as drawn here. The driver works the hang out before the command,
+      # from where the channels stood then (31 mm off for a plate gripped after taking the tools);
+      # along X and Z the tool keeps its place under the channel, so only Y is redone.
+      centre = resource.center().rotated(resource.get_absolute_rotation())
+      tool_from_channel = tool.get_location_wrt(frames.deck).y - frames.current_y(front)
+      location = Coordinate(location.x, half - centre.y - tool_from_channel, location.z)
     request["attach"].append(
       {
         "name": resource.name,
@@ -691,6 +706,70 @@ def _aspirate(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str
     * max(transport_air[c] / speeds[c] if speeds[c] else 0.0 for c in involved),
     3,
   )
+  return request
+
+
+def _dispense(frames: _Frames, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
+  """`C0DS`, read as `_aspirate` reads `C0AS`: the same heights, with the tip following the rising
+  surface up by `fp` while it dispenses."""
+  involved = _involved(_as_list(params["tm"]))
+
+  def per_channel(field: str) -> Dict[int, float]:
+    values = _as_list(params[field])
+    return {c: _tenths(values[i]) for i, c in enumerate(involved)}
+
+  def optional(field: str) -> Dict[int, float]:
+    return per_channel(field) if field in params else {c: 0.0 for c in involved}
+
+  surface = per_channel("zl")
+  floor = per_channel("zx")
+  swap_speed = optional("de")
+  direction = {c: int(v) for c, v in zip(involved, _as_list(params.get("it", [0] * len(involved))))}
+  immersion = optional("ip")
+  down = {
+    c: max(surface[c] + (immersion[c] if direction[c] == 1 else -immersion[c]), floor[c])
+    for c in involved
+  }
+  following = optional("fp")
+  volumes, speeds = per_channel("dv"), per_channel("ds")
+  pour_time = {c: volumes[c] / speeds[c] if speeds[c] else 0.0 for c in involved}
+  pull_out = optional("po")
+
+  def extras(c: int) -> Dict[str, float]:
+    extra: Dict[str, float] = {}
+    if following[c] > 0.05 and pour_time[c] > 0:
+      extra["follow"] = frames.lowest_point_z(c, down[c] + following[c])
+      extra["follow_speed"] = round(following[c] / pour_time[c], 3)
+    if swap_speed[c] > 0:
+      # Out of the liquid from where the tip stands once it has followed the surface up.
+      extra["leave"] = frames.lowest_point_z(c, max(surface[c], down[c] + following[c]))
+      extra["leave_speed"] = swap_speed[c]
+      if pull_out[c] > 0:
+        extra["pull_out"] = frames.lowest_point_z(c, surface[c] + pull_out[c])
+    return extra
+
+  request = _stroke(
+    frames,
+    "dispense",
+    command,
+    params,
+    traverse=_tenths(params["th"]),
+    down={c: frames.lowest_point_z(c, down[c]) for c in involved},
+    end={c: frames.lowest_point_z(c, _tenths(params["te"])) for c in involved},
+    extra={c: extras(c) for c in involved},
+  )
+  settle = optional("wt")
+  cycles = {c: int(v) for c, v in zip(involved, _as_list(params.get("mc", [0] * len(involved))))}
+  mix_volumes, mix_speeds = optional("mv"), optional("ms")
+
+  def mixing(c: int) -> float:
+    if not cycles.get(c) or not mix_speeds[c]:
+      return 0.0
+    volume_time = 2 * cycles[c] * mix_volumes[c] / mix_speeds[c]
+    return MIX_VOLUME_TIME_FACTOR * volume_time + MIX_PER_CYCLE * cycles[c]
+
+  request["dwell"] = round(max(pour_time[c] + settle[c] + mixing(c) for c in involved), 2)
+  request["fixed"] = DISPENSE_FIXED
   return request
 
 
@@ -1212,6 +1291,8 @@ def _decode(
       return _core_plate(frames, key, params, "core_release")
     if key == "C0AS":
       return _aspirate(frames, key, params)
+    if key == "C0DS":
+      return _dispense(frames, key, params)
     if key == "C0JY":
       return _move_y(frames, key, params)
     if key == "C0JZ":

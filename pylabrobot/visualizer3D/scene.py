@@ -10,9 +10,11 @@ import base64
 import functools
 import inspect
 import json
+import math
 import struct
 from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
+from pylabrobot.resources.container import Container
 from pylabrobot.resources.coordinate import Coordinate
 from pylabrobot.resources.resource import Resource
 
@@ -380,6 +382,46 @@ def pack_state(states: Dict[str, Tuple[Dict[str, Any], str]], epoch: int = 0) ->
   return {"epoch": epoch, "states": table, "of": index, "locations": locations}
 
 
+def liquid_height(container: Container, volume: float) -> Optional[float]:
+  """How high the liquid in `container` stands above its cavity floor, in mm, or None if unknown.
+
+  PLR's own `compute_height_from_volume` where the container has one. Otherwise, for a flat-bottomed
+  container of known cross-section, the volume over the floor's area, which is exact for a prism.
+  A round or conical bottom without PLR's function is left unknown rather than guessed. Clamped to
+  the cavity, since a tracker may hold more than the geometry says fits.
+  """
+  if volume <= 0:
+    return 0.0
+  try:
+    floor = container.material_z_thickness or 0.0
+  except NotImplementedError:  # not stated: the page stands the liquid on the box's bottom too
+    floor = 0.0
+  depth = container.get_size_z() - floor
+  height: Optional[float] = None
+  if container.supports_compute_height_volume_functions():
+    try:
+      height = container.compute_height_from_volume(volume)
+    except (ValueError, NotImplementedError):
+      height = None  # past the ends of a measured table: fall through to the prism
+  if height is None and str(getattr(container, "bottom_type", "")).lower().endswith("flat"):
+    sx, sy = container.get_size_x(), container.get_size_y()
+    round_ = str(getattr(container, "cross_section_type", "")).lower().endswith("circle")
+    area = math.pi * sx * sy / 4 if round_ else sx * sy
+    height = volume / area if area > 0 else None
+  if height is None:
+    return None
+  return max(0.0, min(float(height), depth))
+
+
+def published_state(resource: Resource, state: Dict[str, Any]) -> Dict[str, Any]:
+  """A resource's state as the page is told it: a container's with how high its liquid stands."""
+  if isinstance(resource, Container) and "volume" in state:
+    height = liquid_height(resource, float(state["volume"] or 0.0))
+    if height is not None:
+      return {**state, "liquid_height": height}
+  return state
+
+
 def collect_state(root: Resource) -> Dict[str, Tuple[Dict[str, Any], str]]:
   """The cleaned state and key of every resource that publishes any, keyed by name.
 
@@ -389,7 +431,7 @@ def collect_state(root: Resource) -> Dict[str, Tuple[Dict[str, Any], str]]:
   state: Dict[str, Tuple[Dict[str, Any], str]] = {}
 
   def walk(resource: Resource) -> None:
-    cleaned, key = state_signature(resource.serialize_state())
+    cleaned, key = state_signature(published_state(resource, resource.serialize_state()))
     if cleaned:
       state[resource.name] = (cleaned, key)
     for child in resource.children:

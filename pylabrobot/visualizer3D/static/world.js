@@ -42,18 +42,23 @@ export function buildWorld(data) {
   const n = names.length;
 
   const matrices = new Array(n);
-  const local = new THREE.Matrix4();
   const euler = new THREE.Euler();
 
-  // Parents are emitted before children, so one forward pass resolves every world transform.
-  for (let i = 0; i < n; i++) {
+  // A scene built afresh lists parents before children, but the server's kept scene is updated in
+  // place when a move re-parents a resource - a plate put on a nest listed after it - so a page that
+  // loads after one gets a child before its parent. Each transform is resolved after its parent's,
+  // whatever the order: a parent not yet resolved is resolved first.
+  const resolve = (i) => {
+    if (matrices[i] !== undefined) return matrices[i];
     const o = i * 6;
     euler.set(xf[o + 3] * DEG, xf[o + 4] * DEG, xf[o + 5] * DEG, "XYZ");
-    local.makeRotationFromEuler(euler);
-    local.setPosition(xf[o], xf[o + 1], xf[o + 2]);
+    const own = new THREE.Matrix4().makeRotationFromEuler(euler);
+    own.setPosition(xf[o], xf[o + 1], xf[o + 2]);
     const p = parent[i];
-    matrices[i] = p < 0 ? local.clone() : matrices[p].clone().multiply(local);
-  }
+    matrices[i] = p < 0 ? own : resolve(p).clone().multiply(own);
+    return matrices[i];
+  };
+  for (let i = 0; i < n; i++) resolve(i);
 
   const childrenOf = Array.from({ length: n }, () => []);
   for (let i = 0; i < n; i++) if (parent[i] >= 0) childrenOf[parent[i]].push(i);

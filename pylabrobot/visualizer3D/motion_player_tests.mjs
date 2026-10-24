@@ -520,3 +520,30 @@ test("without a jerk the profile is the simulator's trapezoid", () => {
   assert.ok(Math.abs(withNone.duration - (100 / 250 + 250 / 800)) < 1e-9);
   assert.equal(withInfinite.duration, withNone.duration);
 });
+
+test("playback halves waits without changing travel or the recorded request", async () => {
+  const { playbackRequest } = await import("./static/playback_options.js");
+  const request = { kind: "aspirate", fixed: 2, dwell: 4, drives: { y: { speed: 250, stagger: 0.118 } } };
+  const adjusted = playbackRequest(request, 0.5);
+  assert.equal(adjusted.fixed, 1);
+  assert.equal(adjusted.dwell, 2);
+  assert.deepEqual(adjusted.drives, request.drives);
+  assert.equal(request.fixed, 2);
+  assert.equal(request.dwell, 4);
+  const world = fakeWorld({ch0: [0, 0, 0]});
+  const full = await playOut(createPlayer(world.deps()), request);
+  const half = await playOut(createPlayer(world.deps()), adjusted);
+  assert.ok(Math.abs((full - half) - 3) < 0.05);
+});
+
+test("all CO-RE gripper phases move together in Y and keep their drive speed", async () => {
+  const { playbackRequest } = await import("./static/playback_options.js");
+  for (const kind of ["core_tool_pickup", "core_tool_return", "core_grip", "core_move", "core_release"]) {
+    const request = {kind, drives: {y: {speed: 250, acceleration: 800, stagger: 0.118}}};
+    const adjusted = playbackRequest(request, 0.5);
+    assert.equal(adjusted.drives.y.stagger, 0);
+    assert.equal(adjusted.drives.y.speed, 250);
+    assert.equal(adjusted.drives.y.acceleration, 800);
+    assert.equal(request.drives.y.stagger, 0.118);
+  }
+});

@@ -20,6 +20,7 @@ import {
   stateOf,
   travels,
 } from "./drawn.js";
+import { whileMoving } from "./frame.js";
 import { view } from "./renderer.js";
 import { send } from "./transport.js";
 import { modelOf, world } from "./world.js";
@@ -77,7 +78,9 @@ const AXIS_VECTOR = {
 //
 // A revolute joint turns about its declared axis, a prismatic one slides along it. Both are applied
 // as a displacement from the rest transform the file was authored in, so a value of zero puts the
-// arm back exactly where the file drew it.
+// arm back exactly where the file drew it. A joint that declares a `speed` (mm/s, or degrees/s for
+// a revolute one) glides to a new value at that speed; one that does not, and every joint's first
+// value, is set at once.
 export function applyJoints(index) {
   const root = meshRoots.find((r) => r.userData.index === index);
   if (!root) return;
@@ -87,19 +90,46 @@ export function applyJoints(index) {
   for (const [key, joint] of root.userData.joints) {
     const value = published[key];
     if (value === undefined || value === null) continue;
-    const axis = AXIS_VECTOR[joint.spec.axis ?? "z"];
-    if (!axis) continue;
-
-    if (joint.spec.type === "prismatic") {
-      // Published in millimetres; the node lives in the file's own units.
-      const travel = value / (root.userData.scale || 1);
-      joint.node.position.copy(joint.restPosition).addScaledVector(axis, travel);
-    } else {
-      const turn = new THREE.Quaternion().setFromAxisAngle(axis, value * DEG);
-      joint.node.quaternion.copy(joint.restQuaternion).multiply(turn);
+    if (!AXIS_VECTOR[joint.spec.axis ?? "z"]) continue;
+    joint.scale = root.userData.scale || 1;
+    if (joint.spec.speed > 0 && joint.current !== undefined && joint.current !== value) {
+      joint.target = value;
+      gliding.add(joint);
+      continue;
     }
+    gliding.delete(joint);
+    joint.current = value;
+    poseJoint(joint);
   }
 }
+
+function poseJoint(joint) {
+  const axis = AXIS_VECTOR[joint.spec.axis ?? "z"];
+  if (joint.spec.type === "prismatic") {
+    // Published in millimetres; the node lives in the file's own units.
+    joint.node.position.copy(joint.restPosition).addScaledVector(axis, joint.current / joint.scale);
+  } else {
+    const turn = new THREE.Quaternion().setFromAxisAngle(axis, joint.current * DEG);
+    joint.node.quaternion.copy(joint.restQuaternion).multiply(turn);
+  }
+}
+
+// Joints on their way to a new value, advanced every frame until they arrive.
+const gliding = new Set();
+whileMoving((seconds) => {
+  for (const joint of gliding) {
+    const step = joint.spec.speed * seconds;
+    const left = joint.target - joint.current;
+    if (Math.abs(left) <= step) {
+      joint.current = joint.target;
+      gliding.delete(joint);
+    } else {
+      joint.current += Math.sign(left) * step;
+    }
+    poseJoint(joint);
+  }
+  return gliding.size > 0;
+});
 
 // Put a model that is already on screen where the new scene says it is. Its geometry, its
 // materials and its joints are the same objects; what changed is which instance it belongs to and
@@ -117,12 +147,108 @@ function replaceInScene(root, index) {
 // glTF says metres and Y-up; a resource that means something else says so in its declaration.
 const MESH_UNITS = { mm: 1, cm: 10, m: 1000 };
 
+const AXIS_INDEX = { x: 0, y: 1, z: 2 };
+
+/**
+ * Change what the declaration says to, material by material. With `color`, the material is drawn
+ * in that colour. Otherwise it is left out: every face of it, or with `axis` and `below` only its
+ * faces square to that axis whose middle lies below it, in the geometry's own units and axes. The
+ * file's geometry and materials are shared, so what is edited is a copy.
+ */
+function applyEdits(scene, edits) {
+  if (!edits?.length) return;
+  scene.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const rule of edits) {
+      if (o.material?.name !== rule.material) continue;
+      if (rule.color !== undefined) {
+        o.material = o.material.clone();
+        o.material.color.set(rule.color);
+        continue;
+      }
+      const axis = AXIS_INDEX[rule.axis];
+      if (axis === undefined || !Number.isFinite(rule.below)) {
+        o.userData.hidden = true;
+        o.visible = false;
+        continue;
+      }
+      const geometry = o.geometry.index ? o.geometry.clone() : o.geometry.toNonIndexed();
+      const position = geometry.attributes.position;
+      const corner = (k) => (geometry.index ? geometry.index.getX(k) : k);
+      const count = geometry.index ? geometry.index.count : position.count;
+      const a = new THREE.Vector3();
+      const b = new THREE.Vector3();
+      const c = new THREE.Vector3();
+      const normal = new THREE.Vector3();
+      const kept = [];
+      for (let k = 0; k < count; k += 3) {
+        a.fromBufferAttribute(position, corner(k));
+        b.fromBufferAttribute(position, corner(k + 1));
+        c.fromBufferAttribute(position, corner(k + 2));
+        normal.subVectors(c, b).cross(a.clone().sub(b)).normalize();
+        const square = Math.abs(normal.getComponent(axis)) > 0.9;
+        const middle = (a.getComponent(axis) + b.getComponent(axis) + c.getComponent(axis)) / 3;
+        if (!(square && middle < rule.below)) kept.push(corner(k), corner(k + 1), corner(k + 2));
+      }
+      geometry.setIndex(kept);
+      o.geometry = geometry;
+    }
+  });
+}
+
+// Some files wind every triangle against its own normals: STAR.glb and the 96-head's model, both
+// double-sided. The normals point outward; the winding says the outside is the back. A renderer
+// then takes each visible face as seen from behind and turns its normal inward, and anything that
+// reads a surface's normal - a light fixed in the world, ambient occlusion - takes the outside for
+// the inside: the 96-head and the deck's apron went black. The technical look's pale ground light
+// hid it. A mesh whose triangles nearly all disagree with their normals has its winding reversed,
+// once, as the file is parsed.
+const AGAINST_TO_REWIND = 0.8;
+
+function windWithNormals(scene) {
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  scene.traverse((o) => {
+    const geometry = o.isMesh ? o.geometry : null;
+    const position = geometry?.attributes.position;
+    const normal = geometry?.attributes.normal;
+    if (!position || !normal || geometry.userData.wound) return;
+    geometry.userData.wound = true;
+    const index = geometry.index;
+    const corners = index ? index.count : position.count;
+    const at = (k) => (index ? index.getX(k) : k);
+    let against = 0;
+    for (let k = 0; k + 2 < corners; k += 3) {
+      a.fromBufferAttribute(position, at(k));
+      b.fromBufferAttribute(position, at(k + 1)).sub(a);
+      c.fromBufferAttribute(position, at(k + 2)).sub(a);
+      b.cross(c);
+      n.fromBufferAttribute(normal, at(k))
+        .add(a.fromBufferAttribute(normal, at(k + 1)))
+        .add(c.fromBufferAttribute(normal, at(k + 2)));
+      if (b.dot(n) < 0) against++;
+    }
+    if (against < AGAINST_TO_REWIND * (corners / 3)) return;
+    if (!index) geometry.setIndex([...Array(corners).keys()]);
+    const order = geometry.index;
+    for (let k = 0; k + 2 < corners; k += 3) {
+      const second = order.getX(k + 1);
+      order.setX(k + 1, order.getX(k + 2));
+      order.setX(k + 2, second);
+    }
+    order.needsUpdate = true;
+  });
+}
+
 // A copy of the file's scene in our units and Z-up: Y-up is glTF's default, and a Z-up file is
 // already in our own convention.
-function orient(gltf, scale, up) {
+function orient(gltf, scale, up, edits) {
   const scene = gltf.scene.clone(true);
   scene.scale.setScalar(scale);
   if (up === "Y") scene.rotation.x = Math.PI / 2;
+  applyEdits(scene, edits);
   return scene;
 }
 
@@ -149,15 +275,15 @@ function asModelled(material) {
  * Made for a count of instances and nothing about which ones: `placeInstancedModel` puts in where
  * each stands and which resource it is, so the same meshes serve scene after scene.
  */
-function makeInstancedModel(key, count, gltf, scale, up) {
+function makeInstancedModel(key, count, gltf, scale, up, edits) {
   const carrier = new THREE.Group();
-  const scene = orient(gltf, scale, up);
+  const scene = orient(gltf, scale, up, edits);
   carrier.add(scene);
   carrier.updateMatrixWorld(true);
 
   const built = { key, meshes: [] };
   scene.traverse((o) => {
-    if (!o.isMesh) return;
+    if (!o.isMesh || o.userData.hidden) return;
     // One material for every instance: what rides a moving part is cloned instead, so that it can
     // be drawn see-through on its own.
     const material = o.material.clone();
@@ -265,18 +391,21 @@ export function buildDeclaredMeshes() {
       // in a layer of its own while it is being carried, and instances of one model share a
       // material, so a tip on a channel cannot be told from a tip in a rack through one. There
       // are never many of them - a head has eight channels, not ninety-six.
-      const riding = instances.filter((index) => travels(index));
-      const standing = instances.filter((index) => !travels(index));
+      // A model with joints needs nodes of its own to move, so it is never instanced either.
+      const jointed = Object.keys(declared.joints ?? {}).length > 0;
+      const riding = instances.filter((index) => jointed || travels(index));
+      const standing = instances.filter((index) => !jointed && !travels(index));
       if (standing.length > 0) {
         const key = instancedKey(modelIndex, standing);
         const built =
-          instanced.get(key) ?? makeInstancedModel(key, standing.length, gltf, scale, up);
+          instanced.get(key) ??
+          makeInstancedModel(key, standing.length, gltf, scale, up, declared.edits);
         instanced.delete(key);
         placeInstancedModel(built, modelIndex, standing);
       }
 
       riding.forEach((index) => {
-        const scene = orient(gltf, scale, up);
+        const scene = orient(gltf, scale, up, declared.edits);
 
         const root = new THREE.Group();
         root.add(scene);
@@ -337,6 +466,7 @@ export function buildDeclaredMeshes() {
       declared.url,
       (gltf) => {
         try {
+          windWithNormals(gltf.scene);
           place(gltf);
         } finally {
           settled();

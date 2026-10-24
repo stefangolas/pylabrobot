@@ -29,6 +29,10 @@ export let placementOf = []; // instance index -> { mesh, slot }
 
 export let vesselOf = new Map(); // index -> the inner body whose colour tracks what is in it
 
+// index -> the liquid standing in a well: its instanced mesh, its slot, and where it stands, as a
+// placement of its own (the rest of a model's parts share one), rewritten as the level changes.
+export let liquidOf = new Map();
+
 // index -> the instanced parts drawn for it outside the box pipeline, and where each one stands.
 // Switching a resource off empties its box; these have to be emptied with it, or hiding a plate
 // leaves ninety-six cavities and their walls floating where the plate was.
@@ -52,6 +56,7 @@ export function clearDrawn() {
   meshes = [];
   placementOf = new Array(world.names.length);
   vesselOf = new Map();
+  liquidOf = new Map();
   overlayOf = new Map();
   edgeOf = new Map();
   drawnFromFile = new Set();
@@ -203,7 +208,15 @@ export function placeParts(index, touched) {
   const visible = isVisible(index);
 
   for (const part of overlayOf.get(index) ?? []) {
-    const shown = visible && !(part.emptyOnly && world.childrenOf[index].length > 0);
+    // A mesh out of a model file is remembered by where it sits inside the file, not by a size:
+    // it has no height to be empty of. Read as a size, that transform had none, and the first
+    // state a tip in a rack published put every tip of the model out of sight.
+    const fromFile = part.at[0]?.isMatrix4 === true;
+    // A part with no height has nothing to draw: a well's liquid while the well is empty.
+    const shown =
+      visible &&
+      !(part.emptyOnly && world.childrenOf[index].length > 0) &&
+      (fromFile || part.at[2] > 0);
     if (shown) placeInstance(part.mesh, part.slot, world.matrices[index], ...part.at);
     else part.mesh.setMatrixAt(part.slot, ZERO);
     touched.add(part.mesh);

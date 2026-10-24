@@ -14,6 +14,7 @@
 
 import { stateOf } from "./drawn.js";
 import { escapeHtml } from "./format.js";
+import { OVERLAYS } from "./options.js";
 import { modelOf, world } from "./world.js";
 
 // What the tree calls the parts a device works with.
@@ -649,9 +650,9 @@ export function initDeviceTools({ onSelect }) {
       const button = device === undefined ? undefined : buttonOf.get(idOf(device, kind));
       if (button) toggle(device, kind, button);
     }
-    // A device that has just arrived shows its panels; closed once, they stay closed.
+    // Open device panels automatically only with overlays enabled.
     const autoOpen = names.length <= AUTO_OPEN_MAX_DEVICES;
-    for (const device of devices()) {
+    for (const device of OVERLAYS ? devices() : []) {
       if (shown.has(world.names[device])) continue;
       shown.add(world.names[device]);
       if (!autoOpen || (compact && world.names[device] !== selected)) continue;
